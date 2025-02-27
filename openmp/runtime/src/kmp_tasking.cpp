@@ -14,6 +14,7 @@
 #include "kmp_debug.h"
 #include "kmp_i18n.h"
 #include "kmp_itt.h"
+#include "kmp_perf.h"
 #include "kmp_stats.h"
 #include "kmp_wait_release.h"
 #include "kmp_taskdeps.h"
@@ -672,10 +673,11 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
                              kmp_taskdata_t *current_task) {
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread = __kmp_threads[gtid];
+  Perf::__kmp_init_counter(thread, gtid);
 
   KA_TRACE(1,
-           ("%s:%d: __kmp_task_start: T#%d starting task %p\n",
-            __FILE_NAME__, __LINE__, gtid, taskdata));
+           ("%s:%d: __kmp_task_start: T#%d starting task %p, Routine = %d\n",
+            __FILE_NAME__, __LINE__, gtid, taskdata, task->routine));
 
   KMP_DEBUG_ASSERT(taskdata->td_flags.tasktype == TASK_EXPLICIT);
 
@@ -1041,6 +1043,7 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_task_team_t *task_team =
       thread->th.th_task_team; // might be NULL for serial teams...
+  Perf::__kmp_stop_counter(thread, gtid);
 #if OMPX_TASKGRAPH
   // to avoid seg fault when we need to access taskdata->td_flags after free when using vanilla taskloop
   bool is_taskgraph;

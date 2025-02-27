@@ -125,6 +125,7 @@ class kmp_stats_list;
 #define KMP_INTERNAL_CALLOC(n, sz) calloc((n), (sz))
 
 #include "kmp_debug.h"
+#include "kmp_perf.h"
 #include "kmp_lock.h"
 #include "kmp_version.h"
 #include "kmp_barrier.h"
@@ -3032,6 +3033,9 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   kmp_uint8 th_task_state; // alternating 0/1 for task team identification
   kmp_uint32 th_reap_state; // Non-zero indicates thread is not
   // tasking, thus safe to reap
+
+  // Perf counters
+  kmp_int32 perf_stats[NUM_PERF_EVENTS];
 
   /* More stuff for keeping track of active/sleeping threads (this part is
      written by the worker thread) */
