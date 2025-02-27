@@ -21,7 +21,8 @@ static inline constexpr int perf_event()
   if constexpr (ev == PerfEvents::CACHE_REFS) return PERF_COUNT_HW_CACHE_REFERENCES;
   if constexpr (ev == PerfEvents::BACK_STALL) return PERF_COUNT_HW_STALLED_CYCLES_BACKEND;
   if constexpr (ev == PerfEvents::LLC_MISSES) return PERF_COUNT_HW_CACHE_MISSES;
-  if constexpr (ev == PerfEvents::TOT_CYCLES) return PERF_COUNT_HW_INSTRUCTIONS;
+  if constexpr (ev == PerfEvents::TOT_CYCLES) return PERF_COUNT_HW_CPU_CYCLES;
+  if constexpr (ev == PerfEvents::TOT_INSTRUCTIONS) return PERF_COUNT_HW_INSTRUCTIONS;
 }
 
 
@@ -67,6 +68,7 @@ static int64_t disable_perf_event(kmp_info_t *thread, int32_t cpu_id)
   }
 
   thread->th.perf_stats[perf_id(ev)] = 0; // reset fd
+  thread->th.perf_accum[perf_id(ev)] += counter;
   close(fd);
   return counter;
 }
@@ -77,9 +79,13 @@ static int64_t disable_perf_event(kmp_info_t *thread, int32_t cpu_id)
 //   case PerfEvents::BACK_STALL:
 //     return "BACK_STALL";
 //   case PerfEvents::CACHE_REFS:
-//     return "BACK_STALL";
+//     return "CACHE_REFS";
 //   case PerfEvents::LLC_MISSES:
-//     return "BACK_STALL";
+//     return "LLC_MISSES";
+//   case PerfEvents::TOT_CYCLES:
+//     return "TOT_CYCLES";
+//   case PerfEvents::TOT_INSTRUCTIONS:
+//     return "TOT_INSTRUCTIONS";
 //   default:
 //     return "UNKNOWN";
 //   }
@@ -101,6 +107,7 @@ void Perf::__kmp_init_counter(kmp_info_t *thread, int32_t gtid)
   init_perf_event<PerfEvents::CACHE_REFS>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::LLC_MISSES>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::TOT_CYCLES>(thread, &pe, cpu_id);
+  init_perf_event<PerfEvents::TOT_INSTRUCTIONS>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::BACK_STALL>(thread, &pe, cpu_id);
 }
 
@@ -112,14 +119,75 @@ void Perf::__kmp_stop_counter(kmp_info_t *thread, int32_t gtid)
   int64_t tot_cycles = disable_perf_event<PerfEvents::TOT_CYCLES>(thread, cpu_id);
   int64_t cache_refs = disable_perf_event<PerfEvents::CACHE_REFS>(thread, cpu_id);
   int64_t llc_misses = disable_perf_event<PerfEvents::LLC_MISSES>(thread, cpu_id);
+  int64_t tot_ins = disable_perf_event<PerfEvents::TOT_INSTRUCTIONS>(thread, cpu_id);
   int64_t back_stall = disable_perf_event<PerfEvents::BACK_STALL>(thread, cpu_id);
 
   KA_TRACE(1, ("%s:%d: __kmp_stop_counter: Counters for T#%d = CPU#%d:\n"
                "      - Tot cycles = %lld\n"
+               "      - Tot ins = %lld\n"
                "      - Cache refs = %lld\n"
                "      - LLC misses = %lld\n"
                "      - Backend stalls = %lld\n",
-               __FILE_NAME__, __LINE__, gtid, cpu_id, tot_cycles, cache_refs, llc_misses, back_stall));
+               __FILE_NAME__, __LINE__, gtid, cpu_id, tot_cycles, tot_ins, cache_refs, llc_misses, back_stall));
 }
 
+
+static void log_and_sum_events(kmp_info_t *thread, uint64_t* accum)
+{
+  const auto gtid = __kmp_gtid_from_thread(thread);
+  int32_t cpu_id = sched_getcpu();
+  for(auto i = 0; i < NUM_PERF_EVENTS; i++)
+  {
+    accum[i] += thread->th.perf_accum[i];    
+  }
+  KA_TRACE(1, ("      #Counters for T#%d = CPU#%d:\n"
+               "      - Tot cycles = %lld\n"
+               "      - Tot ins = %lld\n"
+               "      - Cache refs = %lld\n"
+               "      - LLC misses = %lld\n"
+               "      - Backend stalls = %lld\n",
+                gtid, cpu_id, 
+                thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)],
+                thread->th.perf_accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)], 
+                thread->th.perf_accum[perf_id(PerfEvents::CACHE_REFS)], 
+                thread->th.perf_accum[perf_id(PerfEvents::LLC_MISSES)], 
+                thread->th.perf_accum[perf_id(PerfEvents::BACK_STALL)]));
+}
+
+
+void Perf::__kmp_summarize_taskloop(kmp_team *team)
+{
+  KA_TRACE(1, ("%s:%d: __kmp_summarize_taskloop: Summarizing counters for team %p\n",
+               __FILE_NAME__, __LINE__, team));
+  
+  uint64_t accum[NUM_PERF_EVENTS] = {};
+  int32_t nthreads = team->t.t_nproc;
+  kmp_real64 duration = 0.0;
+  for (int i = 0; i < nthreads; ++i) {
+      kmp_info_t *thread = team->t.t_threads[i];
+      log_and_sum_events(thread, accum);
+      if(thread->th.time > 0.1)
+      {
+        if (duration > 0.1){
+          KA_TRACE(1, ("%s:%d: __kmp_summarize_taskloop(ERROR): Duplicate time measurement\n",
+               __FILE_NAME__, __LINE__, team));
+        }
+        duration = thread->th.time;
+      }
+      thread->th.time = 0.0;
+  }
+
+  KA_TRACE(1, ("%s:%d: __kmp_summarize_taskloop: Taskloop execution time for team %p = %lf\n"
+               "      - Tot cycles = %lld\n"
+               "      - Tot ins = %lld\n"
+               "      - Cache refs = %lld\n"
+               "      - LLC misses = %lld\n"
+               "      - Backend stalls = %lld\n",
+                 __FILE_NAME__, __LINE__, team, duration,
+                 accum[perf_id(PerfEvents::TOT_CYCLES)], 
+                 accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)], 
+                 accum[perf_id(PerfEvents::CACHE_REFS)], 
+                 accum[perf_id(PerfEvents::LLC_MISSES)], 
+                 accum[perf_id(PerfEvents::BACK_STALL)]));
+}
 

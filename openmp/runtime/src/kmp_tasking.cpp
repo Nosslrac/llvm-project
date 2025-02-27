@@ -3057,6 +3057,11 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
   KA_TRACE(10, ("__kmpc_end_taskgroup(exit): T#%d task %p finished waiting\n",
                 gtid, taskdata));
 
+  kmp_real64 current_time = 0;
+   __kmp_read_system_time(&current_time); // Finish time
+  thread->th.time = current_time - thread->th.time;
+  Perf::__kmp_summarize_taskloop(thread->th.th_team);
+
 #if OMPT_SUPPORT && OMPT_OPTIONAL
   if (UNLIKELY(ompt_enabled.ompt_callback_sync_region)) {
     ompt_callbacks.ompt_callback(ompt_callback_sync_region)(
@@ -5248,9 +5253,6 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     __kmpc_taskgroup(loc, gtid);
   }
   
-  kmp_real64 current_time = 0;
-  __kmp_read_system_time(&current_time);
-  KA_TRACE(1, ("%s:%d: __kmp_taskloop: Starting taskloop with root T#%d. Grainsize=%d\n", __FILE_NAME__, __LINE__, gtid, grainsize));
 #if OMPX_TASKGRAPH
   KMP_ATOMIC_DEC(&__kmp_tdg_task_id);
 #endif
@@ -5349,6 +5351,8 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
                              (last_chunk < 0 ? last_chunk : extras));
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
+
+  __kmp_read_system_time(&thread->th.time); // Start clock for task loop
   // =========================================================================
 
   // check if clause value first

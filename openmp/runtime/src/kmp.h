@@ -3036,6 +3036,8 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
 
   // Perf counters
   kmp_int32 perf_stats[NUM_PERF_EVENTS];
+  kmp_int64 perf_accum[NUM_PERF_EVENTS];
+  kmp_real64 time = 0.0;
 
   /* More stuff for keeping track of active/sleeping threads (this part is
      written by the worker thread) */
