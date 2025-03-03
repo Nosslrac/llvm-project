@@ -15,9 +15,10 @@ enum class PerfEvents : int {
   CACHE_REFS = 2,
   LLC_MISSES = 3,
   BACK_STALL = 4,
+  PAGE_FAULTS = 5,
 };
 
-constexpr int32_t NUM_PERF_EVENTS = 5;
+constexpr int32_t NUM_PERF_EVENTS = 6;
 
 namespace Perf {
 void __kmp_init_counter(kmp_info *thread, int32_t gtid);

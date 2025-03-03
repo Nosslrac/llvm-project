@@ -75,30 +75,12 @@ static int64_t disable_perf_event(kmp_info_t *thread, int32_t cpu_id) {
     close(fd);
     return -1;
   }
-
-  thread->th.perf_stats[perf_id(ev)] = 0; // reset fd
-  thread->th.perf_accum[perf_id(ev)] += counter;
-  close(fd);
   return counter;
 }
 
-// static std::string enumToString(PerfEvents event)
-// {
-//   switch (event) {
-//   case PerfEvents::BACK_STALL:
-//     return "BACK_STALL";
-//   case PerfEvents::CACHE_REFS:
-//     return "CACHE_REFS";
-//   case PerfEvents::LLC_MISSES:
-//     return "LLC_MISSES";
-//   case PerfEvents::TOT_CYCLES:
-//     return "TOT_CYCLES";
-//   case PerfEvents::TOT_INSTRUCTIONS:
-//     return "TOT_INSTRUCTIONS";
-//   default:
-//     return "UNKNOWN";
-//   }
-// }
+inline double frac(uint64_t numerator, uint64_t denominator) {
+  return static_cast<double>(numerator) / static_cast<double>(denominator);
+}
 
 void Perf::__kmp_init_counter(kmp_info_t *thread, int32_t gtid) {
   // Init perf event
@@ -117,6 +99,10 @@ void Perf::__kmp_init_counter(kmp_info_t *thread, int32_t gtid) {
   init_perf_event<PerfEvents::TOT_CYCLES>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::TOT_INSTRUCTIONS>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::BACK_STALL>(thread, &pe, cpu_id);
+  init_perf_event<PerfEvents::PAGE_FAULTS>(thread, &pe, cpu_id);
+
+  KA_TRACE(2, ("%s:%d: __kmp_init_counter: Perf start T#%d = CPU#%d.\n ",
+               __FILE_NAME__, __LINE__, gtid, cpu_id));
 }
 
 void Perf::__kmp_stop_counter(kmp_info_t *thread, int32_t gtid,
