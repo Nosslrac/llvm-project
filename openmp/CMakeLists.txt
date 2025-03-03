@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20.0)
 set(LLVM_SUBPROJECT_TITLE "OpenMP")
 
 set(LLVM_COMMON_CMAKE_UTILS ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Add path for custom modules
 list(INSERT CMAKE_MODULE_PATH 0
@@ -23,7 +24,7 @@ include(GNUInstallDirs)
 if (OPENMP_STANDALONE_BUILD)
   # CMAKE_BUILD_TYPE was not set, default to Release.
   if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+    set(CMAKE_BUILD_TYPE Debug)
   endif()
 
   # Group common settings.
