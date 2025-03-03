@@ -18,6 +18,8 @@
 #include "kmp_stats.h"
 #include "kmp_wait_release.h"
 #include "kmp_taskdeps.h"
+#include "kmp_schedule.h"
+#include "kmp_perf.h"
 #include <sched.h>
 
 #if OMPT_SUPPORT
@@ -535,7 +537,9 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   }
 
   // Find tasking deque specific to encountering thread
-  thread_data = &task_team->tt.tt_threads_data[tid];
+  auto prev_thread_data = &task_team->tt.tt_threads_data[tid];
+  thread_data = Schedule::__kmp_optimal_thread(thread, task_team);
+  taskdata->td_nosteal = 1;
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
   // we don't need it either because we have initialized the dequeue for hidden
@@ -599,9 +603,9 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   KMP_FSYNC_RELEASING(thread->th.th_current_task); // releasing self
   KMP_FSYNC_RELEASING(taskdata); // releasing child
 
- KA_TRACE(1, ("%s:%d: __kmp_push_task: T#%d adding task in deque %p: "
+ KA_TRACE(1, ("%s:%d: __kmp_push_task: T#%d adding task in deque %p, previously %p: "
               "task=%p ntasks=%d head=%u tail=%u\n",
-              __FILE_NAME__, __LINE__, gtid, thread_data->td.td_deque, taskdata, thread_data->td.td_deque_ntasks,
+              __FILE_NAME__, __LINE__, gtid, thread_data->td.td_deque, prev_thread_data, taskdata, thread_data->td.td_deque_ntasks,
               thread_data->td.td_deque_head, thread_data->td.td_deque_tail));
   __kmp_release_bootstrap_lock(&thread_data->td.td_deque_lock);
 
@@ -3300,6 +3304,16 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
   KMP_DEBUG_ASSERT(victim_td->td.td_deque != NULL);
   current = __kmp_threads[gtid]->th.th_current_task;
   taskdata = victim_td->td.td_deque[victim_td->td.td_deque_head];
+  if (taskdata->td_nosteal)
+  {
+    __kmp_release_bootstrap_lock(&victim_td->td.td_deque_lock);
+    KA_TRACE(3, ("__kmp_steal_task: T#%d: steal blocked, task is marked no steal "
+                    "T#%d: task_team=%p ntasks=%d head=%u tail=%u\n",
+                    gtid, __kmp_gtid_from_thread(victim_thr), task_team, ntasks,
+                    victim_td->td.td_deque_head, victim_td->td.td_deque_tail));
+    return NULL;
+  }
+
   if (__kmp_task_is_allowed(gtid, is_constrained, taskdata, current)) {
     // Bump head pointer and Wrap.
     victim_td->td.td_deque_head =
@@ -3331,6 +3345,13 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
       // No appropriate candidate to steal found
       __kmp_release_bootstrap_lock(&victim_td->td.td_deque_lock);
       KA_TRACE(10, ("__kmp_steal_task(exit #4): T#%d could not steal from "
+                    "T#%d: task_team=%p ntasks=%d head=%u tail=%u\n",
+                    gtid, __kmp_gtid_from_thread(victim_thr), task_team, ntasks,
+                    victim_td->td.td_deque_head, victim_td->td.td_deque_tail));
+      return NULL;
+    }
+    else if (taskdata->td_nosteal == 1) {
+      KA_TRACE(2, ("__kmp_steal_task: T#%d: steal blocked, task is marked no steal "
                     "T#%d: task_team=%p ntasks=%d head=%u tail=%u\n",
                     gtid, __kmp_gtid_from_thread(victim_thr), task_team, ntasks,
                     victim_td->td.td_deque_head, victim_td->td.td_deque_tail));

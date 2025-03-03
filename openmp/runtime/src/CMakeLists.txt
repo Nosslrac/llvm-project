@@ -98,6 +98,7 @@ else()
     kmp_sched.cpp
     kmp_collapse.cpp
     kmp_perf.cpp
+    kmp_schedule.cpp
   )
   if(WIN32)
     # Windows specific files
