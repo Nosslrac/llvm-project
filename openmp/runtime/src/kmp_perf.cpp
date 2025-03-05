@@ -99,14 +99,14 @@ void Perf::__kmp_init_counter(kmp_info_t *thread, int32_t gtid) {
   init_perf_event<PerfEvents::TOT_CYCLES>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::TOT_INSTRUCTIONS>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::BACK_STALL>(thread, &pe, cpu_id);
-  init_perf_event<PerfEvents::PAGE_FAULTS>(thread, &pe, cpu_id);
+  // init_perf_event<PerfEvents::PAGE_FAULTS>(thread, &pe, cpu_id);
 
   KA_TRACE(2, ("%s:%d: __kmp_init_counter: Perf start T#%d = CPU#%d.\n ",
                __FILE_NAME__, __LINE__, gtid, cpu_id));
 }
 
 void Perf::__kmp_stop_counter(kmp_info_t *thread, int32_t gtid,
-                              int32_t *routine, int32_t *task_id) {
+                              kmp_int32 *routine, kmp_int32 *task_id) {
   int32_t cpu_id = sched_getcpu();
 
   int64_t tot_cycles =
