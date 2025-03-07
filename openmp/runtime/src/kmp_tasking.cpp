@@ -681,7 +681,7 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
                              kmp_taskdata_t *current_task) {
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread = __kmp_threads[gtid];
-  Perf::__kmp_init_counter(thread, gtid);
+  Perf::__kmp_init_counters(thread, gtid);
 
   const int cpu = sched_getcpu();
   KA_TRACE(1, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
@@ -1052,7 +1052,7 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_task_team_t *task_team =
       thread->th.th_task_team; // might be NULL for serial teams...
-  Perf::__kmp_stop_counter(thread, gtid, (kmp_int32 *)task->routine,
+  Perf::__kmp_stop_counters(thread, gtid, (kmp_int32 *)task->routine,
                            (kmp_int32 *)taskdata);
 #if OMPX_TASKGRAPH
   // to avoid seg fault when we need to access taskdata->td_flags after free
@@ -5399,6 +5399,8 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
   KMP_DEBUG_ASSERT(num_tasks > 0);
 
   __kmp_read_system_time(&thread->th.time); // Start clock for task loop
+  Schedule::__kmp_show_affinity(thread);
+  thread->th.th_team->t.t_proc_bind = proc_bind_true;
   // =========================================================================
 
   // check if clause value first

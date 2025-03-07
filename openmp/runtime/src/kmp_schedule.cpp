@@ -1,7 +1,8 @@
+#include "kmp_schedule.h"
+
 #include "kmp.h"
 #include "kmp_debug.h"
-#include "kmp_os.h"
-#include "kmp_schedule.h"
+#include "kmp_affinity.h"
 
 namespace {
 
@@ -60,9 +61,78 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
   return thread_data;
 }
 
-void Schedule::__kmp_init_affinity(kmp_team *task_team) {
-  // Default proc bind to true
-  task_team->t.t_proc_bind = proc_bind_true;
+
+void Schedule::__kmp_show_affinity(kmp_info *thread)
+{
+  kmp_team_t *team = thread->th.th_team;
+  int32_t nthreads = team->t.t_nproc;
+  for (int i = 0; i < nthreads; ++i) {
+      kmp_info_t *thread = team->t.t_threads[i];
+      char buf[KMP_AFFIN_MASK_PRINT_LEN];
+      __kmp_affinity_print_mask(buf, KMP_AFFIN_MASK_PRINT_LEN,
+                                thread->th.th_affin_mask);
+      KA_TRACE(1, ("T#%d has affinity: %s\n", __kmp_gtid_from_thread(thread), buf));
+    
+  }
+  
+}
+
+void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid, int place)
+{
+  kmp_team_t *team = thread->th.th_team;
+  int32_t nthreads = team->t.t_nproc;
+  int tid = __kmp_tid_from_gtid(gtid);
+  place = tid;
+  if(thread->th.th_affin_mask == NULL)
+  {
+    KA_TRACE(1, ("Alloc: T#%d\n", gtid));
+    KMP_CPU_ALLOC(thread->th.th_affin_mask);
+  }
+  else
+  {
+    KA_TRACE(1, ("Setting zero: T#%d\n", gtid));
+    KMP_CPU_ZERO(thread->th.th_affin_mask);
+  }
+  KMP_CPU_SET(place, thread->th.th_affin_mask);
+  thread->th.th_current_place = place;
+  thread->th.th_new_place = place;
+  thread->th.th_last_place = nthreads - 1;
+  thread->th.force_affin = 1;
+  __kmp_set_system_affinity(thread->th.th_affin_mask, TRUE);
+  char buf[KMP_AFFIN_MASK_PRINT_LEN];
+  __kmp_affinity_print_mask(buf, KMP_AFFIN_MASK_PRINT_LEN,
+                            thread->th.th_affin_mask);
+  KA_TRACE(1, ("Setting thread affinity: Tid=%d T#%d, Affinity: %s\n", tid, gtid, buf));
+}
+
+// Initialize global affinity object for the main thread and prepare for workers
+void Schedule::__kmp_set_numa_affinity(kmp_affinity_t* global_affin, int32_t ncpus)
+{
+  // To make bind_place do something
+  global_affin->type=affinity_explicit;
+  global_affin->num_masks = ncpus;
+
+  KMP_CPU_ALLOC_ARRAY(global_affin->masks, ncpus);
+
+  
+  kmp_affin_mask_t* mask;
+  for (int i = 0; i < ncpus; i++) {
+    mask = KMP_CPU_INDEX(global_affin->masks, i);
+    KMP_CPU_ZERO(mask);
+    KMP_CPU_SET(0, mask);
+    KA_TRACE(1, ("  - Mask = %p\n", mask));
+  }
+
+  KA_TRACE(1, ("Affinity:\n"
+      "Proclist: %p\n"
+      "Affinity type: %d\n"
+      "Num masks: %d\n"
+      "Num os id: %d\n"
+      "Compact: %d\n"
+      "",
+      // "Affinity mask: %s\n",
+      global_affin->proclist, global_affin->type, global_affin->num_masks, 
+      global_affin->num_os_id_masks, global_affin->compact));
 }
 
 kmp_int32 Schedule::__kmp_get_optimal_grainsize(kmp_info *thread) {
@@ -76,3 +146,4 @@ kmp_int32 Schedule::__kmp_get_optimal_grainsize(kmp_info *thread) {
 
   return grainsize;
 }
+

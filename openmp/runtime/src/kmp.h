@@ -3043,6 +3043,9 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   // Schedule parameters
   kmp_int8 next_thread;
 
+#if KMP_AFFINITY_SUPPORTED
+  kmp_int8 force_affin;
+#endif
   /* More stuff for keeping track of active/sleeping threads (this part is
      written by the worker thread) */
   kmp_uint8 th_active_in_pool; // included in count of #active threads in pool

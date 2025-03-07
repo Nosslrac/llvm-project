@@ -1,7 +1,6 @@
 #pragma once
 
 #include "kmp_os.h"
-#include <string>
 
 ////////////////////////////////
 ///   Forward declarations   ///
@@ -21,10 +20,8 @@ enum class PerfEvents : int {
 constexpr int32_t NUM_PERF_EVENTS = 6;
 
 namespace Perf {
-void __kmp_init_counter(kmp_info *thread, int32_t gtid);
-void __kmp_stop_counter(kmp_info *thread, int32_t gtid, kmp_int32 *routine,
-                        kmp_int32 *task_id);
+  void __kmp_init_counters(kmp_info *thread, int32_t gtid);
+  void __kmp_stop_counters(kmp_info *thread, int32_t gtid, kmp_int32 *routine, kmp_int32 *task_id);
 
-void __kmp_summarize_taskloop(kmp_team *team);
-
+  void __kmp_summarize_taskloop(kmp_team *team);
 } // namespace Perf

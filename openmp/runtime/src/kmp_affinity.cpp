@@ -12,6 +12,7 @@
 
 #include "kmp.h"
 #include "kmp_affinity.h"
+#include "kmp_schedule.h"
 #include "kmp_i18n.h"
 #include "kmp_io.h"
 #include "kmp_str.h"
@@ -4936,6 +4937,7 @@ void __kmp_affinity_initialize(kmp_affinity_t &affinity) {
   __kmp_aux_affinity_initialize(affinity);
   if (disabled)
     affinity.type = affinity_disabled;
+  Schedule::__kmp_set_numa_affinity(&affinity, __kmp_topology->get_num_hw_threads());
 }
 
 void __kmp_affinity_uninitialize(void) {
@@ -5040,6 +5042,11 @@ void __kmp_affinity_set_init_mask(int gtid, int isa_root) {
     affinity = &__kmp_hh_affinity;
   else
     affinity = &__kmp_affinity;
+
+  //Mask is unused will be set by __kmp_set_per_thread_affinity
+  __kmp_select_mask_by_gtid(gtid, affinity, &i, &mask);
+  Schedule::__kmp_set_per_thread_affinity(th, gtid, i);
+  return;
 
   if (KMP_AFFINITY_NON_PROC_BIND || is_hidden_helper) {
     if ((affinity->type == affinity_none) ||
@@ -5146,6 +5153,12 @@ void __kmp_affinity_bind_place(int gtid) {
   }
 
   kmp_info_t *th = (kmp_info_t *)TCR_SYNC_PTR(__kmp_threads[gtid]);
+
+  //Affinity is already setup
+  if (th->th.force_affin == 1){
+    return;
+  }
+
 
   KA_TRACE(100, ("__kmp_affinity_bind_place: binding T#%d to place %d (current "
                  "place = %d)\n",
