@@ -124,8 +124,13 @@ class kmp_stats_list;
 #define KMP_INTERNAL_REALLOC(p, sz) realloc((p), (sz))
 #define KMP_INTERNAL_CALLOC(n, sz) calloc((n), (sz))
 
-#include "kmp_debug.h"
+#define PERF_COUNTERS 1
+
+#if PERF_COUNTERS
 #include "kmp_perf.h"
+#endif
+
+#include "kmp_debug.h"
 #include "kmp_lock.h"
 #include "kmp_version.h"
 #include "kmp_barrier.h"
@@ -3039,6 +3044,7 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   kmp_int32 perf_stats[NUM_PERF_EVENTS];
   kmp_int64 perf_accum[NUM_PERF_EVENTS];
   kmp_real64 time = 0.0;
+  kmp_real64 time_accum = 0.0;
 
   // Schedule parameters
   kmp_int8 next_thread;

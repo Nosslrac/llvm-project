@@ -29,6 +29,10 @@
 #include "kmp_dispatch_hier.h"
 #endif
 
+#if PERF_COUNTERS
+#include "kmp_perf.h"
+#endif
+
 #if OMPT_SUPPORT
 #include "ompt-specific.h"
 #endif
@@ -1539,7 +1543,7 @@ __kmp_fork_in_teams(ident_t *loc, int gtid, kmp_team_t *parent_team,
                              ,
                              exit_frame_p
 #endif
-                             );
+      );
     }
 
 #if OMPT_SUPPORT
@@ -1735,7 +1739,7 @@ __kmp_serial_fork_call(ident_t *loc, int gtid, enum fork_context_e call_context,
     if (!ap) {
       // revert change made in __kmpc_serialized_parallel()
       master_th->th.th_serial_team->t.t_level--;
-// Get args from parent team for teams construct
+      // Get args from parent team for teams construct
 
 #if OMPT_SUPPORT
       void *dummy;
@@ -1774,7 +1778,7 @@ __kmp_serial_fork_call(ident_t *loc, int gtid, enum fork_context_e call_context,
                                ,
                                exit_frame_p
 #endif
-                               );
+        );
       }
 
 #if OMPT_SUPPORT
@@ -1873,7 +1877,7 @@ __kmp_serial_fork_call(ident_t *loc, int gtid, enum fork_context_e call_context,
                                ,
                                exit_frame_p
 #endif
-                               );
+        );
       }
 
 #if OMPT_SUPPORT
@@ -3303,28 +3307,28 @@ static kmp_internal_control_t __kmp_get_global_icvs(void) {
 
   kmp_internal_control_t g_icvs = {
     0, // int serial_nesting_level; //corresponds to value of th_team_serialized
-    (kmp_int8)__kmp_global.g.g_dynamic, // internal control for dynamic
-    // adjustment of threads (per thread)
-    (kmp_int8)__kmp_env_blocktime, // int bt_set; //internal control for
-    // whether blocktime is explicitly set
-    __kmp_dflt_blocktime, // int blocktime; //internal control for blocktime
+      (kmp_int8)__kmp_global.g.g_dynamic, // internal control for dynamic
+      // adjustment of threads (per thread)
+      (kmp_int8)__kmp_env_blocktime, // int bt_set; //internal control for
+      // whether blocktime is explicitly set
+      __kmp_dflt_blocktime, // int blocktime; //internal control for blocktime
 #if KMP_USE_MONITOR
-    __kmp_bt_intervals, // int bt_intervals; //internal control for blocktime
+      __kmp_bt_intervals, // int bt_intervals; //internal control for blocktime
 // intervals
 #endif
-    __kmp_dflt_team_nth, // int nproc; //internal control for # of threads for
-    // next parallel region (per thread)
-    // (use a max ub on value if __kmp_parallel_initialize not called yet)
-    __kmp_cg_max_nth, // int thread_limit;
-    __kmp_task_max_nth, // int task_thread_limit; // to set the thread_limit
-    // on task. This is used in the case of target thread_limit
-    __kmp_dflt_max_active_levels, // int max_active_levels; //internal control
-    // for max_active_levels
-    r_sched, // kmp_r_sched_t sched; //internal control for runtime schedule
-    // {sched,chunk} pair
+      __kmp_dflt_team_nth, // int nproc; //internal control for # of threads for
+      // next parallel region (per thread)
+      // (use a max ub on value if __kmp_parallel_initialize not called yet)
+      __kmp_cg_max_nth, // int thread_limit;
+      __kmp_task_max_nth, // int task_thread_limit; // to set the thread_limit
+      // on task. This is used in the case of target thread_limit
+      __kmp_dflt_max_active_levels, // int max_active_levels; //internal control
+      // for max_active_levels
+      r_sched, // kmp_r_sched_t sched; //internal control for runtime schedule
+      // {sched,chunk} pair
     __kmp_nested_proc_bind.bind_types[0],
     __kmp_default_device,
-    NULL // struct kmp_internal_control *next;
+      NULL // struct kmp_internal_control *next;
   };
 
   return g_icvs;
@@ -6017,7 +6021,11 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   kmp_team_t **volatile pteam;
 
   KMP_MB();
-  KA_TRACE(10, ("__kmp_launch_thread: T#%d start\n", gtid));
+  KA_TRACE(2, ("__kmp_launch_thread: T#%d start\n", gtid));
+
+#if PERF_COUNTERS
+  Perf::__kmp_init_counters(this_thr, gtid);
+#endif
 
   if (__kmp_env_consistency_check) {
     this_thr->th.th_cons = __kmp_allocate_cons_stack(gtid); // ATT: Memory leak?
@@ -6052,7 +6060,7 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
     KMP_MB();
 
     /* wait for work to do */
-    KA_TRACE(20, ("__kmp_launch_thread: T#%d waiting for work\n", gtid));
+    KA_TRACE(2, ("__kmp_launch_thread: T#%d waiting for work\n", gtid));
 
     /* No tid yet since not part of a team */
     __kmp_fork_barrier(gtid, KMP_GTID_DNE);
@@ -6115,11 +6123,15 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   }
 #endif
 
+#if PERF_COUNTERS
+  Perf::__kmp_disable_counters(this_thr);
+#endif
+
   this_thr->th.th_task_team = NULL;
   /* run the destructors for the threadprivate data for this thread */
   __kmp_common_destroy_gtid(gtid);
 
-  KA_TRACE(10, ("__kmp_launch_thread: T#%d done\n", gtid));
+  KA_TRACE(2, ("__kmp_launch_thread: T#%d done, destroying thread.\n", gtid));
   KMP_MB();
 
 #if OMP_PROFILING_SUPPORT

@@ -18,6 +18,10 @@ else()
   set(OPENMP_STANDALONE_BUILD FALSE)
 endif()
 
+# ME1
+add_definitions(-DPERF_COUNTERS=1)
+# ME2
+
 # Must go below project(..)
 include(GNUInstallDirs)
 

@@ -15,13 +15,16 @@
 #include "kmp_i18n.h"
 #include "kmp_itt.h"
 #include "kmp_os.h"
-#include "kmp_perf.h"
 #include "kmp_stats.h"
 #include "kmp_wait_release.h"
 #include "kmp_taskdeps.h"
 #include "kmp_schedule.h"
 #include "kmp_perf.h"
 #include <sched.h>
+
+#if PERF_COUNTERS
+#include "kmp_perf.h"
+#endif
 
 #if OMPT_SUPPORT
 #include "ompt-specific.h"
@@ -681,7 +684,10 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
                              kmp_taskdata_t *current_task) {
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread = __kmp_threads[gtid];
-  Perf::__kmp_init_counters(thread, gtid);
+
+#if PERF_COUNTERS
+  Perf::__kmp_start_counters(thread);
+#endif
 
   const int cpu = sched_getcpu();
   KA_TRACE(1, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
@@ -1052,8 +1058,12 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_task_team_t *task_team =
       thread->th.th_task_team; // might be NULL for serial teams...
+
+#if PERF_COUNTERS
   Perf::__kmp_stop_counters(thread, gtid, (kmp_int32 *)task->routine,
-                           (kmp_int32 *)taskdata);
+                            (kmp_int32 *)taskdata);
+#endif
+
 #if OMPX_TASKGRAPH
   // to avoid seg fault when we need to access taskdata->td_flags after free
   // when using vanilla taskloop
@@ -3069,10 +3079,9 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
   KA_TRACE(10, ("__kmpc_end_taskgroup(exit): T#%d task %p finished waiting\n",
                 gtid, taskdata));
 
-  kmp_real64 current_time = 0;
-  __kmp_read_system_time(&current_time); // Finish time
-  thread->th.time = current_time - thread->th.time;
+#if PERF_COUNTERS
   Perf::__kmp_summarize_taskloop(thread->th.th_team);
+#endif
 
 #if OMPT_SUPPORT && OMPT_OPTIONAL
   if (UNLIKELY(ompt_enabled.ompt_callback_sync_region)) {
@@ -5039,9 +5048,13 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
 
   kmp_real64 schedule_finish = 0;
   __kmp_read_system_time(&schedule_finish);
+  schedule_finish = schedule_finish - current_time;
 
-  KA_TRACE(1, ("%s:%d: __kmp_taskloop_linear: Sched start=%lf, End sched=%lf\n",
-               __FILE_NAME__, __LINE__, current_time, schedule_finish));
+  KA_TRACE(
+      1,
+      ("%s:%d: __kmp_taskloop_linear: Elapsed scheduling overhead time=%lf\n",
+       __FILE_NAME__, __LINE__, schedule_finish));
+
   // free the pattern task and exit
   __kmp_task_start(gtid, task, current_task); // make internal bookkeeping
   // do not execute the pattern task, just do internal bookkeeping
@@ -5398,7 +5411,6 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
 
-  __kmp_read_system_time(&thread->th.time); // Start clock for task loop
   Schedule::__kmp_show_affinity(thread);
   thread->th.th_team->t.t_proc_bind = proc_bind_true;
   // =========================================================================
