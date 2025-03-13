@@ -9,6 +9,9 @@
 
 namespace {
 
+constexpr uint64_t ALL_PROCS = ~0ULL;
+
+
 inline int bitCount(kmp_uint64 mask) {
 #if __has_builtin(__builtin_popcountll)
     return __builtin_popcountll(mask);
@@ -24,6 +27,16 @@ inline int bitScan(kmp_uint64 mask) {
     return 0; // Impl needed
 #endif
 }
+
+inline int min(const int a, const int b)
+{
+  if(a < b)
+  {
+    return a;
+  }
+  return b;
+}
+
 
 void __kmp_alloc_task_deque(kmp_thread_data_t *thread_data, int32_t gtid) {
 
@@ -53,9 +66,9 @@ kmp_info_t *__kmp_select_thread(kmp_team *team, kmp_taskdata_t *taskdata, int32_
   const auto nNumaNodes = nthreads / 8; // TODO: use topology to decide this
   const auto node = (bitScan(taskdata->td_affin_mask) / nNumaNodes) * nNumaNodes;
   std::bitset<64> binaryRep(taskdata->td_affin_mask);
-  KA_TRACE(3, ("__kmp_select_thread: Task#%d: Taskdata->td_affin_mask=%lu=0b%s scheduled on T#%d\n", 
-  taskdata->td_task_id, taskdata->td_affin_mask, binaryRep.to_string().c_str(), node));
-  KMP_ASSERT(node < nthreads);
+  KA_TRACE(3, ("%s:%d: __kmp_select_thread: Task#%d: Taskdata->td_affin_mask=%lu=0b%s scheduled on T#%d\n", 
+  __FILE_NAME__, __LINE__, taskdata->td_task_id, taskdata->td_affin_mask, binaryRep.to_string().c_str(), node));
+  KMP_DEBUG_ASSERT(node < nthreads);
   return team->t.t_threads[static_cast<int>(node)];
 }
 
@@ -66,10 +79,10 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
                                                   kmp_taskdata_t *taskdata) {
   int32_t nthreads = task_team->tt.tt_nproc;
   kmp_team *team = master_thread->th.th_team;
-  kmp_info_t *rand_thread =
+  kmp_info_t *base_numa =
       __kmp_select_thread(team, taskdata, nthreads); // Get primary thread from NUMA node
 
-  const auto new_gtid = __kmp_gtid_from_thread(rand_thread);
+  const auto new_gtid = __kmp_gtid_from_thread(base_numa);
   const auto tid = __kmp_tid_from_gtid(new_gtid);
   kmp_thread_data_t *thread_data = &task_team->tt.tt_threads_data[tid];
 
@@ -77,34 +90,43 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
     __kmp_alloc_task_deque(thread_data, new_gtid);
   }
 
-  KA_TRACE(1, ("%s:%d: __kmp_get_random_deque: Finding random deque to add "
-               "task T#%d.\n ",
-               __FILE_NAME__, __LINE__, new_gtid));
+  KA_TRACE(2, ("%s:%d: __kmp_optimal_thread: Base NUMA thread based on affinity T#%d"
+               "(tid=%d).\n ",
+               __FILE_NAME__, __LINE__, new_gtid, tid));
 
   return thread_data;
 }
 
+//
+void Schedule::__kmp_set_any_affinity(kmp_taskdata_t* taskdata)
+{
+  taskdata->td_affin_mask = ALL_PROCS;
+  KA_TRACE(3, ("__kmp_set_any_affinity: Setting any affinity child task %p of parent %p\n",
+              taskdata, taskdata->td_parent));
+}
 
-void Schedule::__kmp_set_task_affinity(kmp_info *thread, kmp_taskdata_t* taskdata, int32_t taskid, int32_t ntasks)
+
+void Schedule::__kmp_set_task_affinity(kmp_info *thread, kmp_taskdata_t* taskdata, 
+  kmp_uint64 lb, kmp_uint64 ub, kmp_uint64 glob_ub)
 {
   kmp_team_t *team = thread->th.th_team;
   int32_t nthreads = team->t.t_nproc;
-  if(taskid == -1)
-  {
-    taskid = 0;
-    KA_TRACE(2, ("%s:%d: __kmp_set_task_affinity: Task is from taskloop recur => run on NUMA %d\n", __FILE_NAME__, __LINE__, taskid));
-  }
+
   const auto nNumaNodes = nthreads / 8; // TODO: use topology to decide this
   const auto numaNodeSize = nthreads / nNumaNodes;
 
-  const auto bucketSize = ntasks / nNumaNodes;
-  const auto numaId = taskid / bucketSize;
-
+  const auto midRange = (lb + ub) / 2;
+  const auto bucketSize = glob_ub / nNumaNodes;
+  auto numaId = midRange / bucketSize;
+  numaId = min(numaId, nNumaNodes - 1); // Round down for last iterations
   const auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
+
   // Set the correct Numa node bits
   taskdata->td_affin_mask = 0b11111111ULL << discreteProc;
-  KA_TRACE(2, ("__kmp_set_task_affinity: Nnuma=%d, numaid=%d, Proc=%d Task#%d => Affin_mask=%lu. ntasks=%d\n",
-      nNumaNodes, numaId, discreteProc, taskid, taskdata->td_affin_mask, ntasks));
+  KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: Nnuma=%d, numaid=%d, Proc=%d MidIter#%d => Affin_mask=%lu.\n",
+      __FILE_NAME__, __LINE__, nNumaNodes, numaId, discreteProc, midRange, taskdata->td_affin_mask));
+  
+  KMP_DEBUG_ASSERT(numaId < nNumaNodes);
   KMP_DEBUG_ASSERT(discreteProc < nthreads);
 }
 
@@ -118,7 +140,7 @@ void Schedule::__kmp_show_affinity(kmp_info *thread)
       char buf[KMP_AFFIN_MASK_PRINT_LEN];
       __kmp_affinity_print_mask(buf, KMP_AFFIN_MASK_PRINT_LEN,
                                 thread->th.th_affin_mask);
-      KA_TRACE(1, ("T#%d has affinity: %s\n", __kmp_gtid_from_thread(thread), buf));
+      KA_TRACE(2, ("T#%d has affinity: %s\n", __kmp_gtid_from_thread(thread), buf));
     
   }
   

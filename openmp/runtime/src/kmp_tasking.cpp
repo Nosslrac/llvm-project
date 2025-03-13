@@ -501,7 +501,7 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   }
 
   kmp_task_team_t *task_team = thread->th.th_task_team;
-  kmp_int32 tid = __kmp_tid_from_gtid(gtid);
+  // kmp_int32 tid = __kmp_tid_from_gtid(gtid);
   kmp_thread_data_t *thread_data;
 
   KA_TRACE(20,
@@ -544,7 +544,6 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   // Find tasking deque specific to encountering thread
   // thread_data = &task_team->tt.tt_threads_data[tid];
   thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata);
-  // taskdata->td_nosteal = 1;
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
   // we don't need it either because we have initialized the dequeue for hidden
@@ -5009,8 +5008,6 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
     kmp_taskloop_bounds_t next_task_bounds =
         kmp_taskloop_bounds_t(next_task, task_bounds);
     
-    // Set affinity mask for taskdata based on taskloop_linear config
-    Schedule::__kmp_set_task_affinity(thread, next_taskdata, i, num_tasks);
 
     // adjust task-specific bounds
     next_task_bounds.set_lb(lower);
@@ -5028,6 +5025,9 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
               gtid, i, next_task, lower, upper, st,
               next_task_bounds.get_lower_offset(),
               next_task_bounds.get_upper_offset()));
+    // Set affinity mask for taskdata based on taskloop_linear config
+    Schedule::__kmp_set_task_affinity(thread, next_taskdata, lower, upper, ub_glob);
+    
 #if OMPT_SUPPORT
     __kmp_omp_taskloop_task(NULL, gtid, next_task,
                             codeptr_ra); // schedule new task
@@ -5237,7 +5237,7 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
                             sizeof(__taskloop_params_t), &__kmp_taskloop_task);
 
   kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
-  Schedule::__kmp_set_task_affinity(thread, new_taskdata, -1, num_tasks);
+  Schedule::__kmp_set_any_affinity(new_taskdata);
   // restore current task
   thread->th.th_current_task = current_task;
   __taskloop_params_t *p = (__taskloop_params_t *)new_task->shareds;
