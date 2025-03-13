@@ -9,12 +9,14 @@ union kmp_info;
 union kmp_team;
 union kmp_task_team;
 union kmp_thread_data;
+struct kmp_taskdata;
 struct kmp_affinity_t;
 
 namespace Schedule {
   // Scheduling decisions
   kmp_int32 __kmp_get_optimal_grainsize(kmp_info *thread);
-  kmp_thread_data* __kmp_optimal_thread(kmp_info *master_thread, kmp_task_team *task_team);
+  kmp_thread_data* __kmp_optimal_thread(kmp_info *master_thread, kmp_task_team *task_team, kmp_taskdata* taskdata);
+  void __kmp_set_task_affinity(kmp_info* thread, kmp_taskdata* taskdata, int32_t taskid, int32_t ntasks);
   
   // Affinity part
   void __kmp_set_numa_affinity(kmp_affinity_t* affinity, int32_t ncpus);

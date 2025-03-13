@@ -542,8 +542,8 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   }
 
   // Find tasking deque specific to encountering thread
-  thread_data = &task_team->tt.tt_threads_data[tid];
-  // thread_data = Schedule::__kmp_optimal_thread(thread, task_team);
+  // thread_data = &task_team->tt.tt_threads_data[tid];
+  thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata);
   // taskdata->td_nosteal = 1;
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
@@ -3319,13 +3319,13 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
   KMP_DEBUG_ASSERT(victim_td->td.td_deque != NULL);
   current = __kmp_threads[gtid]->th.th_current_task;
   taskdata = victim_td->td.td_deque[victim_td->td.td_deque_head];
-  if (taskdata->td_nosteal) {
+  const auto tidBit = 1ULL << __kmp_tid_from_gtid(gtid);
+  if ((tidBit & taskdata->td_affin_mask) == 0) {
     __kmp_release_bootstrap_lock(&victim_td->td.td_deque_lock);
-    KA_TRACE(3,
-             ("__kmp_steal_task: T#%d: steal blocked, task is marked no steal "
-              "T#%d: task_team=%p ntasks=%d head=%u tail=%u\n",
-              gtid, __kmp_gtid_from_thread(victim_thr), task_team, ntasks,
-              victim_td->td.td_deque_head, victim_td->td.td_deque_tail));
+    KA_TRACE(
+          5, ("__kmp_steal_task: T#%d(tid=%d): steal not allowed from "
+              "T#%d(tid=%d): That thread is not part of our NUMA node\n",
+              gtid, __kmp_tid_from_gtid(gtid), __kmp_gtid_from_thread(victim_thr), __kmp_tid_from_gtid(__kmp_gtid_from_thread(victim_thr))));
     return NULL;
   }
 
@@ -3363,13 +3363,6 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
                     "T#%d: task_team=%p ntasks=%d head=%u tail=%u\n",
                     gtid, __kmp_gtid_from_thread(victim_thr), task_team, ntasks,
                     victim_td->td.td_deque_head, victim_td->td.td_deque_tail));
-      return NULL;
-    } else if (taskdata->td_nosteal == 1) {
-      KA_TRACE(
-          2, ("__kmp_steal_task: T#%d: steal blocked, task is marked no steal "
-              "T#%d: task_team=%p ntasks=%d head=%u tail=%u\n",
-              gtid, __kmp_gtid_from_thread(victim_thr), task_team, ntasks,
-              victim_td->td.td_deque_head, victim_td->td.td_deque_tail));
       return NULL;
     }
     int prev = target;
@@ -4975,6 +4968,7 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
 
   kmp_real64 current_time = 0;
   __kmp_read_system_time(&current_time);
+  KA_TRACE(2, ("__kmp_taskloop_linear: For loop: T#%d: %lu tasks\n", gtid, num_tasks));
   // Launch num_tasks tasks, assign grainsize iterations each task
   for (i = 0; i < num_tasks; ++i) {
     kmp_uint64 chunk_minus_1;
@@ -5014,6 +5008,9 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
     kmp_taskdata_t *next_taskdata = KMP_TASK_TO_TASKDATA(next_task);
     kmp_taskloop_bounds_t next_task_bounds =
         kmp_taskloop_bounds_t(next_task, task_bounds);
+    
+    // Set affinity mask for taskdata based on taskloop_linear config
+    Schedule::__kmp_set_task_affinity(thread, next_taskdata, i, num_tasks);
 
     // adjust task-specific bounds
     next_task_bounds.set_lb(lower);
@@ -5190,6 +5187,8 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
 
+  KA_TRACE(2, ("__kmp_taskloop_recur: Start taskloop_recur %d\n", lower_offset));
+
   // split the loop in two halves
   kmp_uint64 lb1, ub0, tc0, tc1, ext0, ext1;
   kmp_int64 last_chunk0 = 0, last_chunk1 = 0;
@@ -5236,6 +5235,9 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
   kmp_task_t *new_task =
       __kmpc_omp_task_alloc(loc, gtid, 1, 3 * sizeof(void *),
                             sizeof(__taskloop_params_t), &__kmp_taskloop_task);
+
+  kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
+  Schedule::__kmp_set_task_affinity(thread, new_taskdata, -1, num_tasks);
   // restore current task
   thread->th.th_current_task = current_task;
   __taskloop_params_t *p = (__taskloop_params_t *)new_task->shareds;
@@ -5263,10 +5265,13 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
 
 #if OMPT_SUPPORT
   // schedule new task with correct return address for OMPT events
+  KA_TRACE(
+      1, ("%s:%d: __kmp_taskloop_recur: OMPT T#%d setting up tasks. Grainsize=%d\n",
+          __FILE_NAME__, __LINE__, gtid, grainsize));
   __kmp_omp_taskloop_task(NULL, gtid, new_task, codeptr_ra);
 #else
   KA_TRACE(
-      1, ("%s:%d: __kmp_taskloop_recur: T#%d setting up tasks. Grainsize=%d\n",
+      1, ("%s:%d: __kmp_taskloop_recur: NOTOMPT T#%d setting up tasks. Grainsize=%d\n",
           __FILE_NAME__, __LINE__, gtid, grainsize));
   __kmp_omp_task(gtid, new_task, true); // schedule new task
 #endif
