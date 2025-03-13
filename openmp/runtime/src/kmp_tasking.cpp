@@ -3479,10 +3479,11 @@ static inline int __kmp_execute_tasks_template(
             // Pick a random thread. Initial plan was to cycle through all the
             // threads, and only return if we tried to steal from every thread,
             // and failed.  Arch says that's not such a great idea.
-            victim_tid = __kmp_get_random(thread) % (nthreads - 1);
-            if (victim_tid >= tid) {
-              ++victim_tid; // Adjusts random distribution to exclude self
-            }
+            victim_tid = Schedule::__kmp_get_random_numa(thread, nthreads);
+            // victim_tid = __kmp_get_random(thread) % (nthreads - 1);
+            // if (victim_tid >= tid) {
+            //   ++victim_tid; // Adjusts random distribution to exclude self
+            // }
             // Found a potential victim
             other_thread = threads_data[victim_tid].td.td_thr;
             // There is a slight chance that __kmp_enable_tasking() did not wake

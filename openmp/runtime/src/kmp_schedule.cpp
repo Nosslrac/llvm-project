@@ -74,6 +74,26 @@ kmp_info_t *__kmp_select_thread(kmp_team *team, kmp_taskdata_t *taskdata, int32_
 
 } // namespace
 
+kmp_int32 Schedule::__kmp_get_random_numa(kmp_info *thread, int32_t nthreads)
+{
+  const auto tid = __kmp_tid_from_gtid(__kmp_gtid_from_thread(thread));
+
+  const auto nNumaNodes = nthreads / 8; // TODO: use topology to decide this
+  const auto numaSize = nthreads / nNumaNodes;
+  
+  const auto baseInNuma = tid / numaSize * numaSize;
+  const auto randomOffset = __kmp_get_random(thread) % numaSize;
+  const auto rand = baseInNuma + randomOffset;
+  
+  if(rand == tid)
+  {
+    return baseInNuma + ((randomOffset + 1) % numaSize);
+  }
+  return rand;
+}
+
+
+
 kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
                                                   kmp_task_team *task_team,
                                                   kmp_taskdata_t *taskdata) {

@@ -24,4 +24,9 @@ namespace Schedule {
   void __kmp_show_affinity(kmp_info* thread);
   void __kmp_set_per_thread_affinity(kmp_info* thread, int32_t gtid, int place);
 
+  //Utility
+
+  // Gives random node within NUMA node
+  kmp_int32 __kmp_get_random_numa(kmp_info *thread, int32_t nthreads);
+
 } // namespace Schedule
