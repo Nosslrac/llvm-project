@@ -2967,7 +2967,7 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
   }
 #endif
 
-  KA_TRACE(10, ("__kmpc_end_taskgroup(enter): T#%d loc=%p\n", gtid, loc));
+  KA_TRACE(5, ("__kmpc_end_taskgroup(enter): T#%d loc=%p\n", gtid, loc));
   KMP_DEBUG_ASSERT(taskgroup != NULL);
   KMP_SET_THREAD_STATE_BLOCK(TASKGROUP);
 

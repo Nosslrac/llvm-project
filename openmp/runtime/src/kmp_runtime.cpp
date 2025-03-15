@@ -6024,6 +6024,7 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   KA_TRACE(2, ("__kmp_launch_thread: T#%d start\n", gtid));
 
 #if PERF_COUNTERS
+  // Open file descriptors for all perf events for this thread
   Perf::__kmp_init_counters(this_thr, gtid);
 #endif
 
@@ -6124,8 +6125,10 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
 #endif
 
 #if PERF_COUNTERS
+  // Close all file descriptors for perf events for this thread
   Perf::__kmp_disable_counters(this_thr);
 #endif
+
 
   this_thr->th.th_task_team = NULL;
   /* run the destructors for the threadprivate data for this thread */
@@ -6166,6 +6169,15 @@ __attribute__((destructor)) void __kmp_internal_end_dtor(void) {
    than one thread alive */
 void __kmp_internal_end_atexit(void) {
   KA_TRACE(30, ("__kmp_internal_end_atexit\n"));
+
+#if PERF_COUNTERS
+  int gtid = __kmp_get_gtid();
+
+  // Close all file descriptors for perf events for this thread
+  // This is only executed by the master thread
+  Perf::__kmp_disable_counters(__kmp_thread_from_gtid(gtid));
+  #endif
+
   /* [Windows]
      josh: ideally, we want to completely shutdown the library in this atexit
      handler, but stat code that depends on thread specific data for gtid fails
@@ -7601,6 +7613,13 @@ void __kmp_parallel_initialize(void) {
   if (__kmp_version) {
     __kmp_print_version_2();
   }
+
+#if PERF_COUNTERS
+  KA_TRACE(5, ("__kmp_parallel_initialize: Initializing perf events, T#%d\n", gtid));
+  // Open file descriptors for all perf events for the master thread
+  // (All other threads will run init_counters from __kmp_launch_thread() )
+  Perf::__kmp_init_counters(  __kmp_thread_from_gtid(gtid), gtid);
+#endif
 
   /* we have finished parallel initialization */
   TCW_SYNC_4(__kmp_init_parallel, TRUE);

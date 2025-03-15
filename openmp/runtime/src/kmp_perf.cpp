@@ -106,29 +106,52 @@ void init_perf_event(kmp_info_t *thread, perf_event_attr *pe, int32_t cpu_id) {
 
   if (fd == -1) {
     KA_TRACE(
-        5,
+        1,
         ("%s:%d: __kmp_start_counter(ERROR): #T%d = CPU#%d: Cannot open %s\n",
          __FILE_NAME__, __LINE__, __kmp_gtid_from_thread(thread), cpu_id,
          enumToString(ev)));
     perror("Reason: ");
     return;
   }
+
+  KA_TRACE(5, ("%s:%d: __kmp_init_perf_event: (E#%d, FD#%d, T#%d, CPU#%d).\n",
+    __FILE_NAME__, __LINE__, ev, fd, __kmp_gtid_from_thread(thread), cpu_id));
+
 }
 
 template <PerfEvents ev> void enable_perf_event(kmp_info_t *thread) {
+  int32_t cpu_id = sched_getcpu();
+  kmp_int64 gtid = __kmp_gtid_from_thread(thread);
+
   int32_t fd = thread->th.perf_stats[perf_id(ev)];
+
+  KMP_ASSERT(fd > 2);
+
   ioctl(fd, PERF_EVENT_IOC_RESET);
+
+  uint64_t counter = 0;
+  if (read(fd, &counter, sizeof(uint64_t)) == -1) {
+    KA_TRACE(1, ("%s:%d: __kmp_enable_perf_event(ERROR): Reading counter for "
+                 "T#%d. Read fail\n",
+                 __FILE_NAME__, __LINE__, gtid));
+    perror("Reason: ");
+    close(fd);
+    return;
+  }
+
+  KA_TRACE(5, ("%s:%d: __kmp_enable_perf_event: (E#%d, FD#%d, T#%d, CPU#%d)\n",
+    __FILE_NAME__, __LINE__, ev, fd, gtid, cpu_id));
+
   ioctl(fd, PERF_EVENT_IOC_ENABLE);
+
 }
 
 template <PerfEvents ev>
 uint64_t stop_perf_event(kmp_info_t *thread, int32_t cpu_id) {
   // Stop event and read
   const int fd = thread->th.perf_stats[perf_id(ev)];
-  if (fd == -1) // Counter was unavailable
-  {
-    return 0;
-  }
+
+  KMP_ASSERT(fd > 2);
 
   ioctl(fd, PERF_EVENT_IOC_DISABLE);
 
@@ -139,21 +162,33 @@ uint64_t stop_perf_event(kmp_info_t *thread, int32_t cpu_id) {
                  __FILE_NAME__, __LINE__, cpu_id));
     perror("Reason: ");
     close(fd);
+    thread->th.perf_stats[perf_id(ev)] = -1;
     return 0;
   }
-  thread->th.perf_stats[perf_id(ev)] = 0; // reset fd
+
+  KA_TRACE(5, ("%s:%d: __kmp_stop_perf_event: (E#%d, FD#%d, T#%d, CPU#%d, Val=%d)\n",
+    __FILE_NAME__, __LINE__, ev, fd, __kmp_gtid_from_thread(thread), cpu_id, counter));
+
+
   thread->th.perf_accum[perf_id(ev)] += counter;
   return counter;
 }
 
 template <PerfEvents ev> void disable_perf_event(kmp_info_t *thread) {
+  int32_t cpu_id = sched_getcpu();
+
   // Disable event
   const int fd = thread->th.perf_stats[perf_id(ev)];
-  if (fd == -1) // Counter was unavailable
+  if (fd <= 2) // Counter was unavailable
   {
     return;
   }
 
+  KA_TRACE(5, ("%s:%d: __kmp_disable_perf_event: (E#%d, FD#%d, T#%d, CPU#%d)\n",
+    __FILE_NAME__, __LINE__, ev, fd, __kmp_gtid_from_thread(thread), cpu_id));
+
+
+  thread->th.perf_stats[perf_id(ev)] = -1; // reset fd
   ioctl(fd, PERF_EVENT_IOC_DISABLE);
   close(fd);
 }
@@ -161,8 +196,11 @@ template <PerfEvents ev> void disable_perf_event(kmp_info_t *thread) {
 
 void Perf::__kmp_init_counters(kmp_info_t *thread, int32_t gtid) {
 
-  KA_TRACE(2,
-           ("%s:%d: __kmp_init_counter(entered)\n ", __FILE_NAME__, __LINE__));
+  int32_t cpu_id = sched_getcpu();
+
+  KA_TRACE(2, ("%s:%d: __kmp_init_counter(entered): T#%d = CPU#%d.\n ",
+               __FILE_NAME__, __LINE__, gtid, cpu_id));
+
   // Init perf event
   perf_event_attr pe;
   memset(&pe, 0, sizeof(perf_event_attr));
@@ -172,7 +210,6 @@ void Perf::__kmp_init_counters(kmp_info_t *thread, int32_t gtid) {
   pe.inherit = 0;
   pe.exclude_hv = 1;
 
-  int32_t cpu_id = sched_getcpu();
 
   init_perf_event<PerfEvents::CACHE_REFS>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::LLC_MISSES>(thread, &pe, cpu_id);
@@ -181,17 +218,14 @@ void Perf::__kmp_init_counters(kmp_info_t *thread, int32_t gtid) {
   init_perf_event<PerfEvents::BACK_STALL>(thread, &pe, cpu_id);
   init_perf_event<PerfEvents::PAGE_FAULTS>(thread, &pe, cpu_id);
 
-  KA_TRACE(2, ("%s:%d: __kmp_init_counter: Perf intit at T#%d = CPU#%d.\n ",
-               __FILE_NAME__, __LINE__, gtid, cpu_id));
 }
 
 void Perf::__kmp_start_counters(kmp_info_t *thread) {
   int32_t gtid = __kmp_get_gtid();
+  int32_t cpu_id = sched_getcpu();
 
-  KA_TRACE(
-      2,
-      ("%s:%d: __kmp_start_counter(entered): Perf intit at T#%d = CPU#%d.\n ",
-       __FILE_NAME__, __LINE__, gtid));
+  KA_TRACE(2,("%s:%d: __kmp_start_counter(entered): T#%d = CPU#%d.\n ",
+       __FILE_NAME__, __LINE__, gtid, cpu_id));
 
   // Start perf counters and execution time
   __kmp_read_system_time(&thread->th.time);
@@ -202,9 +236,8 @@ void Perf::__kmp_start_counters(kmp_info_t *thread) {
   enable_perf_event<PerfEvents::BACK_STALL>(thread);
   enable_perf_event<PerfEvents::PAGE_FAULTS>(thread);
 
-  KA_TRACE(2,
-           ("%s:%d: __kmp_start_counter(exit): Perf intit at T#%d = CPU#%d.\n ",
-            __FILE_NAME__, __LINE__, gtid));
+  KA_TRACE(2,("%s:%d: __kmp_start_counter(exit): T#%d = CPU#%d.\n ",
+            __FILE_NAME__, __LINE__, gtid, cpu_id));
 }
 
 void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
@@ -247,6 +280,9 @@ void Perf::__kmp_disable_counters(kmp_info_t *thread) {
   disable_perf_event<PerfEvents::TOT_INSTRUCTIONS>(thread);
   disable_perf_event<PerfEvents::BACK_STALL>(thread);
   disable_perf_event<PerfEvents::PAGE_FAULTS>(thread);
+
+  KA_TRACE(2,("%s:%d: __kmp_disable_counters(exit): T#%d = CPU#%d.\n ",
+    __FILE_NAME__, __LINE__, __kmp_gtid_from_thread(thread), sched_getcpu()));
 }
 
 void Perf::__kmp_summarize_taskloop(kmp_team *team) {
