@@ -2,6 +2,7 @@
 #include "kmp.h"
 #include "kmp_debug.h"
 #include "kmp_os.h"
+#include "kmp_perf_objects.h"
 
 #include <asm/unistd_64.h>
 #include <cstdint>
@@ -125,7 +126,7 @@ template <PerfEvents ev> void enable_perf_event(kmp_info_t *thread) {
 
   int32_t fd = thread->th.perf_stats[perf_id(ev)];
 
-  KMP_ASSERT(fd > 2);
+  KMP_DEBUG_ASSERT(fd > 2);
 
   ioctl(fd, PERF_EVENT_IOC_RESET);
 
@@ -195,8 +196,12 @@ template <PerfEvents ev> void disable_perf_event(kmp_info_t *thread) {
 } // namespace
 
 void Perf::__kmp_init_counters(kmp_info_t *thread, int32_t gtid) {
-
   int32_t cpu_id = sched_getcpu();
+
+#ifdef AMD_PERF
+  thread->th.perf_container = RawAMDPerfContainer(cpu_id, gtid);
+  thread->th.perf_container.initAll();
+#endif
 
   KA_TRACE(2, ("%s:%d: __kmp_init_counter(entered): T#%d = CPU#%d.\n ",
                __FILE_NAME__, __LINE__, gtid, cpu_id));
@@ -236,6 +241,10 @@ void Perf::__kmp_start_counters(kmp_info_t *thread) {
   enable_perf_event<PerfEvents::BACK_STALL>(thread);
   enable_perf_event<PerfEvents::PAGE_FAULTS>(thread);
 
+#ifdef AMD_PERF
+  thread->th.perf_container.startAll();
+#endif
+
   KA_TRACE(2,("%s:%d: __kmp_start_counter(exit): T#%d = CPU#%d.\n ",
             __FILE_NAME__, __LINE__, gtid, cpu_id));
 }
@@ -253,6 +262,10 @@ void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
   uint64_t page_fault =
       stop_perf_event<PerfEvents::PAGE_FAULTS>(thread, cpu_id);
 
+#ifdef AMD_PERF
+  AMDRawResults results = thread->th.perf_container.stopAndReadAll();
+#endif
+
   kmp_real64 current_time = 0;
   __kmp_read_system_time(&current_time);
   kmp_real64 elapsed_time = current_time - thread->th.time;
@@ -266,10 +279,20 @@ void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
                "      - LLC misses = %ld\n"
                "      - Backend stalls = %ld\n"
                "      - Page faults = %ld\n"
+#ifdef AMD_PERF
+               "      - TotDisp = %lu\n"
+               "      - Backend bound = %lf\n"
+               "      - Backend bound Memory = %lf\n"
+               "      - Backend bound CPU = %lf\n"
+#endif
                "      - Execution time = %f\n",
                __FILE_NAME__, __LINE__, task_id, routine, cpu_id, gtid,
                tot_cycles, tot_ins, cache_refs, llc_misses, back_stall,
-               page_fault, elapsed_time));
+               page_fault, 
+#ifdef AMD_PERF
+              results.totDisp, results.backend, results.backendMem, results.backendCPU,
+#endif
+               elapsed_time));
 }
 
 void Perf::__kmp_disable_counters(kmp_info_t *thread) {
@@ -280,6 +303,10 @@ void Perf::__kmp_disable_counters(kmp_info_t *thread) {
   disable_perf_event<PerfEvents::TOT_INSTRUCTIONS>(thread);
   disable_perf_event<PerfEvents::BACK_STALL>(thread);
   disable_perf_event<PerfEvents::PAGE_FAULTS>(thread);
+
+#ifdef AMD_PERF
+  thread->th.perf_container.disableAll();
+#endif
 
   KA_TRACE(2,("%s:%d: __kmp_disable_counters(exit): T#%d = CPU#%d.\n ",
     __FILE_NAME__, __LINE__, __kmp_gtid_from_thread(thread), sched_getcpu()));

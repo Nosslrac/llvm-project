@@ -10,7 +10,7 @@ def parse_out_file(filename):
         lines = f.readlines()
 
     # Header regex: capture Task ID, Routine ID, CPU ID, and Thread ID.
-    header_pattern = r'Counters for Task (0x[0-9a-fA-F]+) executing Routine (0x[0-9a-fA-F]+) on CPU#(\d+)\s+\(T#(\d+)\):'
+    header_pattern = r'Counters for Task (0x[0-9a-fA-F]+) executing routine (0x[0-9a-fA-F]+) on CPU#(\d+)\s+\(T#(\d+)\):'
     param_pattern = r'-\s*(.*?)\s*=\s*([0-9]*\.?[0-9]+)'
 
     i = 0
@@ -161,7 +161,7 @@ if __name__ == "__main__":
     routines = group_tasks_by_routine(tasks)
     
     # Selected routines for combined correlation.
-    selected_routine_ids = ['0x555f30f7cd70', '0x555f30f7ca60', '0x555f30f7ca80']
+    selected_routine_ids = list(routines.keys())
     combined_corr = None
     combined_corr = compute_combined_correlations(routines, selected_routine_ids)
     

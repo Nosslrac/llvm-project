@@ -129,6 +129,7 @@ class kmp_stats_list;
 #if PERF_COUNTERS
 #include "kmp_perf.h"
 #endif
+#include "kmp_perf_objects.h"
 
 #include "kmp_debug.h"
 #include "kmp_lock.h"
@@ -3043,6 +3044,7 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   // Perf counters
   kmp_int32 perf_stats[NUM_PERF_EVENTS];
   kmp_int64 perf_accum[NUM_PERF_EVENTS];
+  RawAMDPerfContainer perf_container;
   kmp_real64 time = 0.0;
   kmp_real64 time_accum = 0.0;
 

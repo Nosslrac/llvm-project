@@ -20,6 +20,7 @@ endif()
 
 # ME1
 add_definitions(-DPERF_COUNTERS=1)
+add_definitions(-DAMD_PERF)
 # ME2
 
 # Must go below project(..)
