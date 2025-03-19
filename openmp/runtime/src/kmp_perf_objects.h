@@ -9,8 +9,13 @@ enum EventCodes : uint64_t {
 };
 
 struct AMDRawResults {
+  explicit AMDRawResults()
+    : totDisp(0), backend(0), backendMem(0), backendCPU(0) {};
   explicit AMDRawResults(uint64_t disp, double bound, double boundMem, double boundCPU)
     : totDisp(disp), backend(bound), backendMem(boundMem), backendCPU(boundCPU) {};
+  AMDRawResults& operator+=(const AMDRawResults& other);
+  AMDRawResults avg(int32_t nthreads);
+
   uint64_t totDisp;
   double backend;
   double backendMem;
@@ -27,12 +32,15 @@ public:
 
   void initCounter();
   void startCounter() const;
-  uint64_t stopAndRead() const;
+  uint64_t stopAndRead();
   void disableCounter();
+  void resetAccumulatedCounter();
+  uint64_t accumulatedCounter();
 
 private:
   int32_t m_fd;
   int32_t m_cpu;
+  uint64_t m_accumCounter;
 };
 
 ///////////////////////////////////////////////////
@@ -45,7 +53,8 @@ public:
 
   void initAll();
   void startAll() const;
-  AMDRawResults stopAndReadAll() const;
+  AMDRawResults stopAndReadAll();
+  AMDRawResults summarizeCounters();
   void disableAll();
 
 private:

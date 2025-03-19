@@ -5,6 +5,7 @@
 // #include "kmp_os.h"
 
 #include <asm/unistd_64.h>
+#include <cstdint>
 #include <linux/perf_event.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -54,8 +55,24 @@ const char* enumToString(EventCodes event)
 
 } // namespace
 
+AMDRawResults& AMDRawResults::operator+=(const AMDRawResults& other) {
+  totDisp += other.totDisp;
+  backend += other.backend;
+  backendMem += other.backendMem;
+  backendCPU += other.backendCPU;
+  return *this;
+}
+
+AMDRawResults AMDRawResults::avg(int32_t nthreads) {
+  return AMDRawResults(totDisp / nthreads, 
+                      backend / nthreads, 
+                   backendMem / nthreads, 
+                   backendCPU / nthreads);
+}
+
+
 template<EventCodes E>
-AMDRawEvent<E>::AMDRawEvent(int32_t cpu_id) : m_fd(-1), m_cpu(cpu_id) {}
+AMDRawEvent<E>::AMDRawEvent(int32_t cpu_id) : m_fd(-1), m_cpu(cpu_id), m_accumCounter(0) {}
 
 template<EventCodes E>
 void AMDRawEvent<E>::initCounter() {
@@ -82,7 +99,7 @@ void AMDRawEvent<E>::startCounter() const {
 /// @brief Disabling and reading varies a bit between the counters ///
 //////////////////////////////////////////////////////////////////////
 template<EventCodes E>
-uint64_t AMDRawEvent<E>::stopAndRead() const {
+uint64_t AMDRawEvent<E>::stopAndRead() {
   KA_TRACE(5, ("%s::stopAndRead: fd=%d\n", enumToString(E), m_fd));
   KMP_DEBUG_ASSERT2(m_fd > 2, "Invalid filedescriptor");
 
@@ -99,8 +116,10 @@ uint64_t AMDRawEvent<E>::stopAndRead() const {
   }
   if constexpr (E == EventCodes::TOT_DISPATCH_SLOTS)
   {
+    m_accumCounter += counter * 6;
     return counter * 6;
   }
+  m_accumCounter += counter;
   return counter;
 }
 
@@ -111,6 +130,16 @@ void AMDRawEvent<E>::disableCounter() {
   ioctl(m_fd, PERF_EVENT_IOC_DISABLE);
   close(m_fd);
   m_fd = -1;
+}
+
+template<EventCodes E>
+void AMDRawEvent<E>::resetAccumulatedCounter() {
+  m_accumCounter = 0;
+}
+
+template<EventCodes E>
+uint64_t AMDRawEvent<E>::accumulatedCounter() {
+  return m_accumCounter;
 }
 
 
@@ -152,7 +181,7 @@ void RawAMDPerfContainer::startAll() const {
   // TODO: Add the rest
 }
 
-AMDRawResults RawAMDPerfContainer::stopAndReadAll() const {
+AMDRawResults RawAMDPerfContainer::stopAndReadAll() {
   KA_TRACE(5, ("RawAMDPerfContainer::stopAndReadAll: Stop and read AMD counters for CPU#%d\n", m_cpu));
   const auto totDisp = m_totDisp.stopAndRead();
 
@@ -165,6 +194,24 @@ AMDRawResults RawAMDPerfContainer::stopAndReadAll() const {
   const auto backendBoundCPU = backendBoundFrac * (1 - frac(backendMemNumer, backendMemDenom));
 
   // TODO: Add the rest
+  return AMDRawResults(totDisp, backendBoundFrac, backendBoundMemFrac, backendBoundCPU);
+}
+
+AMDRawResults RawAMDPerfContainer::summarizeCounters() {
+  const auto totDisp = m_totDisp.accumulatedCounter();
+  const auto backendBound = m_backendBound.accumulatedCounter();
+  const auto backendMemNumer = m_backendMemNumerator.accumulatedCounter();
+  const auto backendMemDenom = m_backendMemDenominator.accumulatedCounter();
+
+  const auto backendBoundFrac = frac(backendBound, totDisp);
+  const auto backendBoundMemFrac = backendBoundFrac * frac(backendMemNumer, backendMemDenom);
+  const auto backendBoundCPU = backendBoundFrac * (1 - frac(backendMemNumer, backendMemDenom));
+
+  m_totDisp.resetAccumulatedCounter();
+  m_backendBound.resetAccumulatedCounter();
+  m_backendMemNumerator.resetAccumulatedCounter();
+  m_backendMemDenominator.resetAccumulatedCounter();
+
   return AMDRawResults(totDisp, backendBoundFrac, backendBoundMemFrac, backendBoundCPU);
 }
 

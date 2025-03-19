@@ -90,7 +90,7 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
     __kmp_alloc_task_deque(thread_data, new_gtid);
   }
 
-  KA_TRACE(2, ("%s:%d: __kmp_optimal_thread: Base NUMA thread based on affinity T#%d"
+  KA_TRACE(3, ("%s:%d: __kmp_optimal_thread: Base NUMA thread based on affinity T#%d"
                "(tid=%d).\n ",
                __FILE_NAME__, __LINE__, new_gtid, tid));
 
@@ -140,7 +140,7 @@ void Schedule::__kmp_show_affinity(kmp_info *thread)
       char buf[KMP_AFFIN_MASK_PRINT_LEN];
       __kmp_affinity_print_mask(buf, KMP_AFFIN_MASK_PRINT_LEN,
                                 thread->th.th_affin_mask);
-      KA_TRACE(2, ("T#%d has affinity: %s\n", __kmp_gtid_from_thread(thread), buf));
+      KA_TRACE(3, ("T#%d has affinity: %s\n", __kmp_gtid_from_thread(thread), buf));
     
   }
   

@@ -607,7 +607,7 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   KMP_FSYNC_RELEASING(thread->th.th_current_task); // releasing self
   KMP_FSYNC_RELEASING(taskdata); // releasing child
 
-  KA_TRACE(1, ("%s:%d: __kmp_push_task: T#%d adding task in deque %p"
+  KA_TRACE(3, ("%s:%d: __kmp_push_task: T#%d adding task in deque %p"
                "task=%p ntasks=%d head=%u tail=%u\n",
                __FILE_NAME__, __LINE__, gtid, thread_data->td.td_deque,
                taskdata, thread_data->td.td_deque_ntasks,
@@ -689,7 +689,7 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
 #endif
 
   const int cpu = sched_getcpu();
-  KA_TRACE(1, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
+  KA_TRACE(3, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
                "Routine = %d\n",
                __FILE_NAME__, __LINE__, gtid, cpu, taskdata, task->routine));
 
@@ -1272,7 +1272,7 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
       10, ("__kmp_task_finish(exit): T#%d finished task %p, resuming task %p\n",
            gtid, taskdata, resumed_task));
   KA_TRACE(
-      1, ("%s:%d: __kmp_task_finish: T#%d finished task %p, resuming task %p\n",
+      3, ("%s:%d: __kmp_task_finish: T#%d finished task %p, resuming task %p\n",
           __FILE_NAME__, __LINE__, gtid, taskdata, resumed_task));
 
   return;
@@ -1786,7 +1786,7 @@ __kmp_invoke_task(kmp_int32 gtid, kmp_task_t *task,
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread;
   int discard = 0 /* false */;
-  KA_TRACE(1, ("%s:%d: __kmp_invoke_task: T#%d invoking task=%p\n",
+  KA_TRACE(3, ("%s:%d: __kmp_invoke_task: T#%d invoking task=%p\n",
                __FILE_NAME__, __LINE__, gtid, taskdata));
   KA_TRACE(
       30, ("__kmp_invoke_task(enter): T#%d invoking task %p, current_task=%p\n",
@@ -2059,7 +2059,7 @@ kmp_int32 __kmpc_omp_task_parts(ident_t *loc_ref, kmp_int32 gtid,
 kmp_int32 __kmp_omp_task(kmp_int32 gtid, kmp_task_t *new_task,
                          bool serialize_immediate) {
   kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
-  KA_TRACE(1, ("%s:%d: __kmp_omp_task: T#%d schedule a non-thread-switchable "
+  KA_TRACE(3, ("%s:%d: __kmp_omp_task: T#%d schedule a non-thread-switchable "
                "task for execution %p\n",
                __FILE_NAME__, __LINE__, gtid, new_taskdata));
 #if OMPX_TASKGRAPH
@@ -3401,7 +3401,7 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
             gtid, taskdata, __kmp_gtid_from_thread(victim_thr), task_team,
             ntasks, victim_td->td.td_deque_head, victim_td->td.td_deque_tail));
   task = KMP_TASKDATA_TO_TASK(taskdata);
-  KA_TRACE(1,
+  KA_TRACE(3,
            ("%s:%d: __kmp_steal_task: T#%d stole task from T#%d: "
             "deque size=%d task=%p\n",
             __FILE_NAME__, __LINE__, gtid, __kmp_gtid_from_thread(victim_thr),
@@ -3517,7 +3517,7 @@ static inline int __kmp_execute_tasks_template(
                                thread_finished, is_constrained);
           if (task != NULL) {
             KA_TRACE(
-                1, ("%s:%d: __kmp_execute_tasks_template: T#%d stealing task "
+                3, ("%s:%d: __kmp_execute_tasks_template: T#%d stealing task "
                     "from victim T#%d. task=%p\n",
                     __FILE_NAME__, __LINE__, gtid,
                     __kmp_gtid_from_thread(threads_data[victim_tid].td.td_thr),

@@ -64,7 +64,7 @@ void log_and_sum_events(kmp_info_t *thread, uint64_t *accum) {
   int32_t cpu_id = sched_getcpu();
 
   KA_TRACE(
-      1, ("     #Counters for T#%d = CPU#%d:\n"
+      5, ("     #Counters for T#%d = CPU#%d:\n"
           "      - Tot cycles = %ld\n"
           "      - Tot ins = %ld\n"
           "      - Cache refs = %ld\n"
@@ -203,7 +203,7 @@ void Perf::__kmp_init_counters(kmp_info_t *thread, int32_t gtid) {
   thread->th.perf_container.initAll();
 #endif
 
-  KA_TRACE(2, ("%s:%d: __kmp_init_counter(entered): T#%d = CPU#%d.\n ",
+  KA_TRACE(3, ("%s:%d: __kmp_init_counter(entered): T#%d = CPU#%d.\n ",
                __FILE_NAME__, __LINE__, gtid, cpu_id));
 
   // Init perf event
@@ -229,7 +229,7 @@ void Perf::__kmp_start_counters(kmp_info_t *thread) {
   int32_t gtid = __kmp_get_gtid();
   int32_t cpu_id = sched_getcpu();
 
-  KA_TRACE(2,("%s:%d: __kmp_start_counter(entered): T#%d = CPU#%d.\n ",
+  KA_TRACE(3,("%s:%d: __kmp_start_counter(entered): T#%d = CPU#%d.\n ",
        __FILE_NAME__, __LINE__, gtid, cpu_id));
 
   // Start perf counters and execution time
@@ -244,9 +244,6 @@ void Perf::__kmp_start_counters(kmp_info_t *thread) {
 #ifdef AMD_PERF
   thread->th.perf_container.startAll();
 #endif
-
-  KA_TRACE(2,("%s:%d: __kmp_start_counter(exit): T#%d = CPU#%d.\n ",
-            __FILE_NAME__, __LINE__, gtid, cpu_id));
 }
 
 void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
@@ -271,7 +268,7 @@ void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
   kmp_real64 elapsed_time = current_time - thread->th.time;
   thread->th.time_accum += elapsed_time;
 
-  KA_TRACE(2, ("%s:%d: __kmp_stop_counters: Counters for Task %p executing "
+  KA_TRACE(3, ("%s:%d: __kmp_stop_counters: Counters for Task %p executing "
                "routine %p on CPU#%d (T#%d):\n"
                "      - Tot cycles = %ld\n"
                "      - Tot ins = %ld\n"
@@ -308,28 +305,30 @@ void Perf::__kmp_disable_counters(kmp_info_t *thread) {
   thread->th.perf_container.disableAll();
 #endif
 
-  KA_TRACE(2,("%s:%d: __kmp_disable_counters(exit): T#%d = CPU#%d.\n ",
+  KA_TRACE(2, ("%s:%d: __kmp_disable_counters(exit): T#%d = CPU#%d.\n ",
     __FILE_NAME__, __LINE__, __kmp_gtid_from_thread(thread), sched_getcpu()));
 }
 
 void Perf::__kmp_summarize_taskloop(kmp_team *team) {
+#ifdef AMD_PERF  
+  AMDRawResults accumAMD;
+#endif
   uint64_t accum[NUM_PERF_EVENTS] = {};
   int32_t nthreads = team->t.t_nproc;
-  kmp_real64 duration = 0.0;
   for (int i = 0; i < nthreads; ++i) {
     kmp_info_t *thread = team->t.t_threads[i];
     log_and_sum_events(thread, accum);
-    if (thread->th.time > 0.1) {
-      if (duration > 0.1) {
-        KA_TRACE(1, ("%s:%d: __kmp_summarize_taskloop(ERROR): Duplicate time "
-                     "measurement\n",
-                     __FILE_NAME__, __LINE__, team));
-      }
-    }
+#ifdef AMD_PERF  
+    accumAMD += thread->th.perf_container.summarizeCounters();
+#endif
   }
 
-  KA_TRACE(1, ("%s:%d: __kmp_summarize_taskloop: Taskloop execution time for "
-               "team %p = %lf\n"
+#ifdef AMD_PERF  
+  accumAMD = accumAMD.avg(nthreads);
+#endif
+
+  KA_TRACE(2, ("%s:%d: __kmp_summarize_taskloop: Taskloop execution time for "
+               "team %p\n"
                "      - Tot cycles = %ld\n"
                "      - Tot ins = %ld\n"
                "      - Cache refs = %ld\n"
@@ -339,8 +338,15 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
                "  # Ratios:\n"
                "      - IPC = %lf\n"
                "      - Miss ratio = %lf\n"
-               "      - Stalls ratio = %lf\n",
-               __FILE_NAME__, __LINE__, team, duration,
+               "      - Stalls ratio = %lf\n"
+#ifdef AMD_PERF 
+               "  # AMD raw ratios:\n"
+               "      - TotDisp = %lu\n"
+               "      - Backend bound = %lf\n"
+               "      - Backend bound Memory = %lf\n"
+               "      - Backend bound CPU = %lf\n"
+#endif
+               ,__FILE_NAME__, __LINE__, team,
                accum[perf_id(PerfEvents::TOT_CYCLES)],
                accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)],
                accum[perf_id(PerfEvents::CACHE_REFS)],
@@ -352,5 +358,9 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
                frac(accum[perf_id(PerfEvents::LLC_MISSES)],
                     accum[perf_id(PerfEvents::CACHE_REFS)]),
                frac(accum[perf_id(PerfEvents::BACK_STALL)],
-                    accum[perf_id(PerfEvents::TOT_CYCLES)])));
+                    accum[perf_id(PerfEvents::TOT_CYCLES)]),
+#ifdef AMD_PERF
+              accumAMD.totDisp, accumAMD.backend, accumAMD.backendMem, accumAMD.backendCPU
+#endif
+              ));
 }
