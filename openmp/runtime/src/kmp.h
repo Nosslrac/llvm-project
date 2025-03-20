@@ -124,8 +124,6 @@ class kmp_stats_list;
 #define KMP_INTERNAL_REALLOC(p, sz) realloc((p), (sz))
 #define KMP_INTERNAL_CALLOC(n, sz) calloc((n), (sz))
 
-#define PERF_COUNTERS 1
-
 #if PERF_COUNTERS
 #include "kmp_perf.h"
 #endif
@@ -3041,12 +3039,21 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   kmp_uint32 th_reap_state; // Non-zero indicates thread is not
   // tasking, thus safe to reap
 
-  // Perf counters
-  kmp_int32 perf_stats[NUM_PERF_EVENTS];
-  kmp_int64 perf_accum[NUM_PERF_EVENTS];
-  RawAMDPerfContainer perf_container;
+  // Perf counters for one task.
+  // Resets when the task is finished.
+  kmp_int32 perf_stats[NUM_PERF_EVENTS]; 
   kmp_real64 time = 0.0;
+
+  // Perf counters accumulated for all tasks running on a thread.
+  // Resets when the taskloop is finished.
+  kmp_int64 perf_accum[NUM_PERF_EVENTS]; 
   kmp_real64 time_accum = 0.0;
+
+  // Container for RAW perf events
+  RawAMDPerfContainer perf_container;
+
+  // Routine id
+  kmp_int64 routine_id;
 
   // Schedule parameters
   kmp_int8 next_thread;
@@ -4314,6 +4321,7 @@ void __kmpc_omp_task_complete(ident_t *loc_ref, kmp_int32 gtid,
 
 KMP_EXPORT void __kmpc_taskgroup(ident_t *loc, int gtid);
 KMP_EXPORT void __kmpc_end_taskgroup(ident_t *loc, int gtid);
+
 
 KMP_EXPORT kmp_int32 __kmpc_omp_task_with_deps(
     ident_t *loc_ref, kmp_int32 gtid, kmp_task_t *new_task, kmp_int32 ndeps,

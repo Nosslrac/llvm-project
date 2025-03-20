@@ -161,7 +161,7 @@ if __name__ == "__main__":
     routines = group_tasks_by_routine(tasks)
     
     # Selected routines for combined correlation.
-    selected_routine_ids = list(routines.keys())
+    selected_routine_ids = list(routines.keys()) #['0x555f30f7cd70', '0x555f30f7ca60', '0x555f30f7ca80']
     combined_corr = None
     combined_corr = compute_combined_correlations(routines, selected_routine_ids)
     

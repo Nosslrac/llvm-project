@@ -100,6 +100,7 @@ else()
     kmp_perf.cpp
     kmp_schedule.cpp
     kmp_perf_objects.cpp
+    kmp_routine.cpp
   )
   if(WIN32)
     # Windows specific files

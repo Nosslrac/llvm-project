@@ -3,6 +3,7 @@
 #include "kmp_debug.h"
 #include "kmp_os.h"
 #include "kmp_perf_objects.h"
+#include "kmp_routine.h"
 
 #include <asm/unistd_64.h>
 #include <cstdint>
@@ -61,10 +62,13 @@ namespace {
 
 void log_and_sum_events(kmp_info_t *thread, uint64_t *accum) {
   const auto gtid = __kmp_gtid_from_thread(thread);
-  int32_t cpu_id = sched_getcpu();
+
+  for (auto i = 0; i < NUM_PERF_EVENTS; i++) {
+    accum[i] += thread->th.perf_accum[i];
+  }
 
   KA_TRACE(
-      5, ("     #Counters for T#%d = CPU#%d:\n"
+      2, ("     #Counters for T#%d:\n"
           "      - Tot cycles = %ld\n"
           "      - Tot ins = %ld\n"
           "      - Cache refs = %ld\n"
@@ -75,7 +79,7 @@ void log_and_sum_events(kmp_info_t *thread, uint64_t *accum) {
           "      - IPC = %lf\n"
           "      - Miss ratio = %lf\n"
           "      - Stalls ratio = %lf\n",
-          gtid, cpu_id, thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)],
+          gtid, thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)],
           thread->th.perf_accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)],
           thread->th.perf_accum[perf_id(PerfEvents::CACHE_REFS)],
           thread->th.perf_accum[perf_id(PerfEvents::LLC_MISSES)],
@@ -87,13 +91,6 @@ void log_and_sum_events(kmp_info_t *thread, uint64_t *accum) {
                thread->th.perf_accum[perf_id(PerfEvents::CACHE_REFS)]),
           frac(thread->th.perf_accum[perf_id(PerfEvents::BACK_STALL)],
                thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)])));
-
-  // Reset all accums
-  for (auto i = 0; i < NUM_PERF_EVENTS; i++) {
-    accum[i] += thread->th.perf_accum[i];
-    thread->th.perf_accum[i] = 0;
-  }
-  thread->th.time_accum = 0.0;
 }
 
 template <PerfEvents ev>
@@ -108,7 +105,7 @@ void init_perf_event(kmp_info_t *thread, perf_event_attr *pe, int32_t cpu_id) {
   if (fd == -1) {
     KA_TRACE(
         1,
-        ("%s:%d: __kmp_start_counter(ERROR): #T%d = CPU#%d: Cannot open %s\n",
+        ("%s:%d: __kmp_init_perf_event(ERROR): #T%d = CPU#%d: Cannot open %s\n",
          __FILE_NAME__, __LINE__, __kmp_gtid_from_thread(thread), cpu_id,
          enumToString(ev)));
     perror("Reason: ");
@@ -152,13 +149,13 @@ uint64_t stop_perf_event(kmp_info_t *thread, int32_t cpu_id) {
   // Stop event and read
   const int fd = thread->th.perf_stats[perf_id(ev)];
 
-  KMP_ASSERT(fd > 2);
+  KMP_DEBUG_ASSERT(fd > 2);
 
   ioctl(fd, PERF_EVENT_IOC_DISABLE);
 
   uint64_t counter = 0;
   if (read(fd, &counter, sizeof(uint64_t)) == -1) {
-    KA_TRACE(1, ("%s:%d: __kmp_stop_counter(ERROR): Reading counter for "
+    KA_TRACE(1, ("%s:%d: __kmp_stop_perf_event(ERROR): Reading counter for "
                  "CPU#%d. Read fail\n",
                  __FILE_NAME__, __LINE__, cpu_id));
     perror("Reason: ");
@@ -246,8 +243,8 @@ void Perf::__kmp_start_counters(kmp_info_t *thread) {
 #endif
 }
 
-void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
-                               kmp_int32 *routine, kmp_int32 *task_id) {
+void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid, 
+                                              kmp_int32 task_id) {
   int32_t cpu_id = sched_getcpu();
 
   uint64_t tot_cycles = stop_perf_event<PerfEvents::TOT_CYCLES>(thread, cpu_id);
@@ -283,7 +280,7 @@ void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
                "      - Backend bound CPU = %lf\n"
 #endif
                "      - Execution time = %f\n",
-               __FILE_NAME__, __LINE__, task_id, routine, cpu_id, gtid,
+               __FILE_NAME__, __LINE__, task_id, thread->th.routine_id, cpu_id, gtid,
                tot_cycles, tot_ins, cache_refs, llc_misses, back_stall,
                page_fault, 
 #ifdef AMD_PERF
@@ -315,6 +312,11 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
 #endif
   uint64_t accum[NUM_PERF_EVENTS] = {};
   int32_t nthreads = team->t.t_nproc;
+
+  KA_TRACE(1, ("\n%s:%d: __kmp_summarize_taskloop: Summarizing"
+          " stats for routine %p \n",
+          __FILE_NAME__, __LINE__, team->t.t_threads[0]->th.routine_id));
+
   for (int i = 0; i < nthreads; ++i) {
     kmp_info_t *thread = team->t.t_threads[i];
     log_and_sum_events(thread, accum);
@@ -327,8 +329,7 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
   accumAMD = accumAMD.avg(nthreads);
 #endif
 
-  KA_TRACE(2, ("%s:%d: __kmp_summarize_taskloop: Taskloop execution time for "
-               "team %p\n"
+  KA_TRACE(1, ("%s:%d: __kmp_summarize_taskloop: Taskloop team %p\n"
                "      - Tot cycles = %ld\n"
                "      - Tot ins = %ld\n"
                "      - Cache refs = %ld\n"
@@ -358,9 +359,69 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
                frac(accum[perf_id(PerfEvents::LLC_MISSES)],
                     accum[perf_id(PerfEvents::CACHE_REFS)]),
                frac(accum[perf_id(PerfEvents::BACK_STALL)],
-                    accum[perf_id(PerfEvents::TOT_CYCLES)]),
+                    accum[perf_id(PerfEvents::TOT_CYCLES)])
 #ifdef AMD_PERF
-              accumAMD.totDisp, accumAMD.backend, accumAMD.backendMem, accumAMD.backendCPU
+              ,accumAMD.totDisp, accumAMD.backend, accumAMD.backendMem, accumAMD.backendCPU
 #endif
               ));
+}
+
+// This method calculates the perf metrics from
+// the accumulated perf counters.
+//
+// NOTE: We could do all kinds of analysis here to return 
+// other types of metrics.
+routine_stats Perf::__kmp_get_taskloop_stats(kmp_team *team){
+  routine_stats ret_stats = {0,0};
+  int32_t nthreads = team->t.t_nproc;
+  uint64_t tot_cycles = 0;
+  uint64_t back_stalls = 0;
+  kmp_real64 exec_time = 0.0;
+
+  /* Loop over all threads to calculate the metrics */
+  for (int i = 0; i < nthreads; ++i) {
+    kmp_info_t *thread = team->t.t_threads[i];
+
+    /* Calculate execution_time stat */
+    // WARNING: Currently, this stat is overriden in 
+    // Schedule::__kmp_store_routine_stats because using
+    // time_accum does not include the scheduling/stealing
+    // overhead inbetween execution of tasks.
+    if (thread->th.time_accum > exec_time)
+      exec_time = thread->th.time_accum;
+
+    /* Calculate counters used for stall_ratio */
+    back_stalls += thread->th.perf_accum[perf_id(PerfEvents::BACK_STALL)];
+    tot_cycles += thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)];
+  }
+
+  ret_stats.execution_time = exec_time;
+
+  /* Calculate stall_ratio stat */
+  ret_stats.stall_ratio = frac(back_stalls, tot_cycles);
+
+  KMP_DEBUG_ASSERT(tot_cycles > 0);
+
+  KA_TRACE(1,("__kmp_get_taskloop_stats: for routine %p: execT:%f, stalls:%lld, "
+      "cycles:%lld, stall_ratio%f\n", team->t.t_threads[0]->th.routine_id,
+      ret_stats.execution_time, back_stalls, tot_cycles, ret_stats.stall_ratio));
+
+  return ret_stats;
+}
+
+void Perf::__kmp_reset_taskloop_stats(kmp_team *team){
+
+  int32_t nthreads = team->t.t_nproc;
+
+  for (int i = 0; i < nthreads; ++i) {
+    kmp_info_t *thread = team->t.t_threads[i];
+
+    // Reset all accums
+    for (auto i = 0; i < NUM_PERF_EVENTS; i++) {
+      thread->th.perf_accum[i] = 0;
+    }
+
+    // Reset thread taskloop timer
+    thread->th.time_accum = 0.0;
+  }
 }
