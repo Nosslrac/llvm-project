@@ -375,6 +375,7 @@ routine_stats Perf::__kmp_get_taskloop_stats(kmp_team *team){
   routine_stats ret_stats = {0,0};
   int32_t nthreads = team->t.t_nproc;
   uint64_t tot_cycles = 0;
+  uint64_t tot_inst = 0;
   uint64_t back_stalls = 0;
   kmp_real64 exec_time = 0.0;
 
@@ -393,18 +394,21 @@ routine_stats Perf::__kmp_get_taskloop_stats(kmp_team *team){
     /* Calculate counters used for stall_ratio */
     back_stalls += thread->th.perf_accum[perf_id(PerfEvents::BACK_STALL)];
     tot_cycles += thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)];
+    tot_inst += thread->th.perf_accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)];
+
   }
 
   ret_stats.execution_time = exec_time;
 
   /* Calculate stall_ratio stat */
   ret_stats.stall_ratio = frac(back_stalls, tot_cycles);
+  ret_stats.IPC = frac(tot_inst,tot_cycles);
 
   KMP_DEBUG_ASSERT(tot_cycles > 0);
 
-  KA_TRACE(1,("__kmp_get_taskloop_stats: for routine %p: execT:%f, stalls:%lld, "
-      "cycles:%lld, stall_ratio%f\n", team->t.t_threads[0]->th.routine_id,
-      ret_stats.execution_time, back_stalls, tot_cycles, ret_stats.stall_ratio));
+  KA_TRACE(1,("__kmp_get_taskloop_stats: for routine %p: execT:%f, "
+      "cycles:%lld, stall_ratio%f, IPC=%f\n", team->t.t_threads[0]->th.routine_id,
+      ret_stats.execution_time, tot_cycles, ret_stats.stall_ratio, ret_stats.IPC));
 
   return ret_stats;
 }

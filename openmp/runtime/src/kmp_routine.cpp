@@ -54,11 +54,12 @@ routine_config Routine::getDefaultConfig(kmp_info* thread, kmp_int64 num_tasks){
 // This method only considers moldability as of now...
 // TODO: Add analyzis of metrics for changing the config affinity.
 routine_config Routine::getNextConfig() {
-    routine_config next_config = current_config;
+    routine_config next_config = Routine::getNextEfficientConfig();
+    return next_config;
 
     // If minima found, return the fastest config
     if (minima_found){
-        next_config = getFastestConfig(0);
+        next_config = getOptimalConfig(0);
     }
 
     // If only one previous config, try half the number of threads
@@ -168,6 +169,119 @@ routine_config Routine::getNextConfig() {
 
 
 
+routine_config Routine::getNextEfficientConfig(){
+    routine_config next_config = current_config;
+
+    // If minima found, return the most efficient config
+    if (minima_found){
+        next_config = getOptimalConfig(1);
+    }
+
+    // If only one previous config, try half the number of threads
+     else if(execution_history.size() < 2) {
+ 
+        next_config.num_threads = current_config.num_threads / 2;
+        
+        // For now, let the num tasks scale with the number of threads
+        next_config.num_tasks = current_config.num_tasks / 2;
+
+        KA_TRACE(1, ("Routine::getNextConfig(): Only one previous config."
+            " Try half the number of threads (%d threads/2) for routine %p .\n",
+            current_config.num_threads, routine_id));
+
+    } 
+    
+    // If two or more previous configs, try a config inbetween the two fbest configs
+    else 
+    {
+
+        // Find the two best configs
+        routine_config best = current_config, second_best = current_config, smallest = current_config;
+        kmp_real64 best_ratio = 0.0, second_best_ratio = 0.0;
+
+        for(const auto &entry : execution_history) {
+            
+            // Find highest IPC/execution_time ratio
+            if(entry.second.IPC/entry.second.execution_time > best_ratio) {
+
+                second_best = best;
+                second_best_ratio = best_ratio;
+                best = entry.first;
+                best_ratio = entry.second.IPC/entry.second.execution_time;
+
+            } else if(entry.second.IPC/entry.second.execution_time > second_best_ratio) {
+
+                second_best = entry.first;
+                second_best_ratio = entry.second.IPC/entry.second.execution_time;
+            }
+
+            // Find smallest
+            if(entry.first.num_threads < smallest.num_threads)
+                smallest = entry.first;
+
+        }
+        KMP_DEBUG_ASSERT(best_ratio > 0.0);
+        KMP_DEBUG_ASSERT(second_best_ratio > 0.0);
+
+        KA_TRACE(1, ("\nRoutine::getNextConfig():"
+            " Comparing old configs for routine %p. \n"
+            "Best config={%d, %d, %d}, IPC/execT=%f."
+            " Second best={%d, %d, %d}, IPC/execT=%f.\n",
+            routine_id, best.num_threads, best.num_tasks, 
+            static_cast<int>(best.task_affinity), best_ratio, 
+            second_best.num_threads, second_best.num_tasks, 
+            static_cast<int>(second_best.task_affinity),
+            second_best_ratio));
+
+
+        kmp_int64 diff_threads = getDiff(best.num_threads, second_best.num_threads);
+        kmp_int64 next_num_threads = getMin(best.num_threads, 
+                                        second_best.num_threads) + diff_threads/2;
+
+        // Check if the smallest config is fastest. 
+        // In this case, schedule an even smaller config if possible.
+        if (smallest.num_threads == best.num_threads && 
+            best.num_threads > MOLDABILITY_GRANULARITY){
+
+            next_config.num_threads = best.num_threads - MOLDABILITY_GRANULARITY;
+            // For now, select num_tasks = threads*10 as default, change later ofc maybe???
+            next_config.num_tasks = next_config.num_threads * 10;
+        }
+
+        // Check if a local minima has been found. 
+        // In this case, select the fastest config.
+        else if (diff_threads <= MOLDABILITY_GRANULARITY || 
+                current_config.num_threads == next_num_threads) {
+
+            minima_found = true;
+            next_config = best;
+            KA_TRACE(1, ("Routine::getNextConfig(): Minima found!"
+                        " Best config selected.\n"))
+        } 
+        
+        // Select the config inbetween the fastest and
+        // second fastest config.
+        else {
+
+            next_config.num_threads = next_num_threads;
+            // For now, select num_tasks = threads*10 as default, change later ofc maybe???
+            next_config.num_tasks = next_config.num_threads * 10;
+
+            KA_TRACE(1, ("Routine::getNextConfig(): Selecting new config"
+                " based on thread diff: %d, new number of threads: %d.\n",
+                diff_threads, next_config.num_threads));
+        }
+
+    }
+
+    // Update current config
+    current_config = next_config;
+
+    return next_config;
+}
+
+
+
 // This method stores the latest taskloop execution
 //
 // NOTE: The method relies on the fact that the config used
@@ -179,20 +293,21 @@ void Routine::storeExecution(routine_stats stats) {
         execution_history.emplace(current_config, stats);
 
         KA_TRACE(1, ("\nRoutine:storeExecution: routine %p inserted new config={%d, %d, %d}"
-                    "\nwith the stats={ExecT=%f, StallRatio=%f}\n",
+                    "\nwith the stats={ExecT=%f, StallRatio=%f, IPC=%f, IPC/execT=%f}\n",
             routine_id, current_config.num_threads, current_config.num_tasks, 
-            static_cast<int>(current_config.task_affinity),stats.execution_time, stats.stall_ratio));
+            static_cast<int>(current_config.task_affinity),stats.execution_time, stats.stall_ratio
+            , stats.IPC, (stats.IPC/stats.execution_time)));
         return;
     }
 
     KA_TRACE(1, ("Routine:storeExecution: routine %p has new stats for config={%d, %d, %d}.\n"
-        "Old stats={ExecT=%f, StallRatio=%f}, New stats={ExecT=%f, StallRatio=%f}\n",
+        "Old stats={ExecT=%f, StallRatio=%f, IPC=%f, IPC/execT=%f}, New stats={ExecT=%f, StallRatio=%f, IPC=%f, IPC/execT=%f}\n",
         routine_id, current_config.num_threads, current_config.num_tasks, 
         static_cast<int>(current_config.task_affinity),
-        execution_history.at(current_config).execution_time, execution_history.at(current_config).stall_ratio, 
-        stats.execution_time, stats.stall_ratio));
-
-
+        execution_history.at(current_config).execution_time, execution_history.at(current_config).stall_ratio,
+        execution_history.at(current_config).IPC, (execution_history.at(current_config).IPC/
+        execution_history.at(current_config).execution_time),
+        stats.execution_time, stats.stall_ratio, stats.IPC, (stats.IPC/stats.execution_time)));
 
 
     // For now, we select the fastest stats
@@ -217,7 +332,11 @@ void Routine::storeExecution(routine_stats stats) {
     execution_history.at(current_config) = stats; */
 }
 
-routine_config Routine::getFastestConfig(int val) {
+// Returns the optimal config based on val
+//
+// val = 0 -> fastest config is selected
+// val = 1 -> highest IPC/execution_time ratio selected
+routine_config Routine::getOptimalConfig(int val) {
     routine_config best_config;
     
     switch (val) {
@@ -234,7 +353,20 @@ routine_config Routine::getFastestConfig(int val) {
             KMP_DEBUG_ASSERT(best_time < DBL_MAX);
             break;
         }
+        case 1: // Look for highest IPC/execution_time ratio
+        {
+            kmp_real64 best_ratio = 0.0;
+            for (auto const& entry: execution_history) {
+                if (entry.second.IPC/entry.second.execution_time > best_ratio) {
+                    best_ratio = entry.second.IPC/entry.second.execution_time;
+                    best_config = entry.first;
+                }
+            }
         
+            KMP_DEBUG_ASSERT(best_ratio > 0);
+            break;
+        }
+
         default:
             break;
     }

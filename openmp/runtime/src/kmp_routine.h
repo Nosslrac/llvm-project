@@ -28,6 +28,7 @@ struct routine_stats
 {
     kmp_real64 execution_time = -1;
     kmp_real64 stall_ratio = -1; // Total cycle/stall cycle
+    kmp_real64 IPC = -1; // Total instructions/total cycles
 
     // add some more stats of course
     // maybe taskloop idleness ratio, stall ratio etc
@@ -52,7 +53,7 @@ private:
     routine_config current_config;
     bool minima_found;
 
-    routine_config getFastestConfig(int val);
+    routine_config getOptimalConfig(int val);
 
 public:
 
@@ -60,5 +61,6 @@ public:
     routine_config getCurrentConfig();
     routine_config getDefaultConfig(kmp_info*, kmp_int64);
     routine_config getNextConfig();
+    routine_config getNextEfficientConfig();
     void storeExecution(routine_stats);
 };
