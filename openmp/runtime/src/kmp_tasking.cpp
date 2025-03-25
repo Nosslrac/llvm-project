@@ -5437,8 +5437,6 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
   Schedule::__kmp_show_affinity(thread);
   thread->th.th_team->t.t_proc_bind = proc_bind_true;
 
-  Schedule::__kmp_start_routine_timer();
-
   // =========================================================================
 
   // check if clause value first

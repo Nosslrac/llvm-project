@@ -54,8 +54,7 @@ routine_config Routine::getDefaultConfig(kmp_info* thread, kmp_int64 num_tasks){
 // This method only considers moldability as of now...
 // TODO: Add analyzis of metrics for changing the config affinity.
 routine_config Routine::getNextConfig() {
-    routine_config next_config = Routine::getNextEfficientConfig();
-    return next_config;
+    routine_config next_config = current_config;
 
     // If minima found, return the fastest config
     if (minima_found){
@@ -195,24 +194,24 @@ routine_config Routine::getNextEfficientConfig(){
     else 
     {
 
-        // Find the two best configs
+        // Find the two most efficient configs
         routine_config best = current_config, second_best = current_config, smallest = current_config;
         kmp_real64 best_ratio = 0.0, second_best_ratio = 0.0;
 
         for(const auto &entry : execution_history) {
             
             // Find highest IPC/execution_time ratio
-            if(entry.second.IPC/entry.second.execution_time > best_ratio) {
+            if(entry.second.efficiency > best_ratio) {
 
                 second_best = best;
                 second_best_ratio = best_ratio;
                 best = entry.first;
-                best_ratio = entry.second.IPC/entry.second.execution_time;
+                best_ratio = entry.second.efficiency;
 
-            } else if(entry.second.IPC/entry.second.execution_time > second_best_ratio) {
+            } else if(entry.second.efficiency > second_best_ratio) {
 
                 second_best = entry.first;
-                second_best_ratio = entry.second.IPC/entry.second.execution_time;
+                second_best_ratio = entry.second.efficiency;
             }
 
             // Find smallest
@@ -225,8 +224,8 @@ routine_config Routine::getNextEfficientConfig(){
 
         KA_TRACE(1, ("\nRoutine::getNextConfig():"
             " Comparing old configs for routine %p. \n"
-            "Best config={%d, %d, %d}, IPC/execT=%f."
-            " Second best={%d, %d, %d}, IPC/execT=%f.\n",
+            "Best config={%d, %d, %d}, effic=%f."
+            " Second best={%d, %d, %d}, effic=%f.\n",
             routine_id, best.num_threads, best.num_tasks, 
             static_cast<int>(best.task_affinity), best_ratio, 
             second_best.num_threads, second_best.num_tasks, 
@@ -293,28 +292,25 @@ void Routine::storeExecution(routine_stats stats) {
         execution_history.emplace(current_config, stats);
 
         KA_TRACE(1, ("\nRoutine:storeExecution: routine %p inserted new config={%d, %d, %d}"
-                    "\nwith the stats={ExecT=%f, StallRatio=%f, IPC=%f, IPC/execT=%f}\n",
+                    "\nwith the stats={ExecT=%f, StallRatio=%f, effic=%f}\n",
             routine_id, current_config.num_threads, current_config.num_tasks, 
             static_cast<int>(current_config.task_affinity),stats.execution_time, stats.stall_ratio
-            , stats.IPC, (stats.IPC/stats.execution_time)));
+            , stats.efficiency));
         return;
     }
 
     KA_TRACE(1, ("Routine:storeExecution: routine %p has new stats for config={%d, %d, %d}.\n"
-        "Old stats={ExecT=%f, StallRatio=%f, IPC=%f, IPC/execT=%f}, New stats={ExecT=%f, StallRatio=%f, IPC=%f, IPC/execT=%f}\n",
+        "Old stats={ExecT=%f, StallRatio=%f, effic=%f}, New stats={ExecT=%f, StallRatio=%f, effic=%f}\n",
         routine_id, current_config.num_threads, current_config.num_tasks, 
         static_cast<int>(current_config.task_affinity),
         execution_history.at(current_config).execution_time, execution_history.at(current_config).stall_ratio,
-        execution_history.at(current_config).IPC, (execution_history.at(current_config).IPC/
-        execution_history.at(current_config).execution_time),
-        stats.execution_time, stats.stall_ratio, stats.IPC, (stats.IPC/stats.execution_time)));
+        execution_history.at(current_config).efficiency,
+        stats.execution_time, stats.stall_ratio, stats.efficiency));
 
 
-    // For now, we select the fastest stats
-    // for the config. In future, we might
-    // do cumulative average etc.
-
-    if (execution_history.at(current_config).execution_time > stats.execution_time)
+    // For now, we select the most efficient config.
+    // In future, we might do cumulative average etc.
+    if (execution_history.at(current_config).efficiency < stats.efficiency)
         execution_history.at(current_config) = stats;
     
 
@@ -335,7 +331,7 @@ void Routine::storeExecution(routine_stats stats) {
 // Returns the optimal config based on val
 //
 // val = 0 -> fastest config is selected
-// val = 1 -> highest IPC/execution_time ratio selected
+// val = 1 -> highest efficiency ratio selected
 routine_config Routine::getOptimalConfig(int val) {
     routine_config best_config;
     
@@ -353,12 +349,12 @@ routine_config Routine::getOptimalConfig(int val) {
             KMP_DEBUG_ASSERT(best_time < DBL_MAX);
             break;
         }
-        case 1: // Look for highest IPC/execution_time ratio
+        case 1: // Look for highest efficiency ratio
         {
             kmp_real64 best_ratio = 0.0;
             for (auto const& entry: execution_history) {
-                if (entry.second.IPC/entry.second.execution_time > best_ratio) {
-                    best_ratio = entry.second.IPC/entry.second.execution_time;
+                if (entry.second.efficiency > best_ratio) {
+                    best_ratio = entry.second.efficiency;
                     best_config = entry.first;
                 }
             }

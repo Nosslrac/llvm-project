@@ -383,11 +383,6 @@ routine_stats Perf::__kmp_get_taskloop_stats(kmp_team *team){
   for (int i = 0; i < nthreads; ++i) {
     kmp_info_t *thread = team->t.t_threads[i];
 
-    /* Calculate execution_time stat */
-    // WARNING: Currently, this stat is overriden in 
-    // Schedule::__kmp_store_routine_stats because using
-    // time_accum does not include the scheduling/stealing
-    // overhead inbetween execution of tasks.
     if (thread->th.time_accum > exec_time)
       exec_time = thread->th.time_accum;
 
@@ -402,13 +397,14 @@ routine_stats Perf::__kmp_get_taskloop_stats(kmp_team *team){
 
   /* Calculate stall_ratio stat */
   ret_stats.stall_ratio = frac(back_stalls, tot_cycles);
-  ret_stats.IPC = frac(tot_inst,tot_cycles);
+  kmp_real64 IPC = frac(tot_inst,tot_cycles);
+  ret_stats.efficiency = IPC/exec_time;
 
   KMP_DEBUG_ASSERT(tot_cycles > 0);
 
   KA_TRACE(1,("__kmp_get_taskloop_stats: for routine %p: execT:%f, "
-      "cycles:%lld, stall_ratio%f, IPC=%f\n", team->t.t_threads[0]->th.routine_id,
-      ret_stats.execution_time, tot_cycles, ret_stats.stall_ratio, ret_stats.IPC));
+      "cycles:%lld, stall_ratio%f, effic=%f\n", team->t.t_threads[0]->th.routine_id,
+      ret_stats.execution_time, tot_cycles, ret_stats.stall_ratio, ret_stats.efficiency));
 
   return ret_stats;
 }

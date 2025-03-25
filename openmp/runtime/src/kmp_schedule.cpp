@@ -41,8 +41,6 @@ inline int min(const int a, const int b)
 // Routine stuff
 std::unordered_map<kmp_int64, Routine> routine_map; // Map containing all routines
 
-kmp_real64 routine_timer;
-
 // Routine stuff end
 
 
@@ -220,17 +218,12 @@ void Schedule::__kmp_set_numa_affinity(kmp_affinity_t* global_affin, int32_t ncp
 
 void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id, routine_stats stats) {
 
-  kmp_real64 end_time;
-  __kmp_read_system_time(&end_time);
-  kmp_real64 tot_exec_time = end_time - routine_timer;
-  stats.execution_time = tot_exec_time;
-
   // Verify that the routine exists in the map
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
 
   KA_TRACE(1, ("__kmp_store_routine_stats: New stat store for routine %p:" 
-    " tot_exec_time:%f, stall_ratio:%f, IPC:%f\n",
-    routine_id, stats.execution_time, stats.stall_ratio, stats.IPC));
+    " tot_exec_time:%f, stall_ratio:%f, effic:%f\n",
+    routine_id, stats.execution_time, stats.stall_ratio, stats.efficiency));
 
   // Store the execution stats
   routine_map.at(routine_id).storeExecution(stats);
@@ -262,8 +255,4 @@ routine_config Schedule::__kmp_select_config(kmp_info* thread, kmp_uint64 num_ta
     static_cast<int>(ret_config.task_affinity)));
 
   return ret_config;
-}
-
-void Schedule::__kmp_start_routine_timer(){
-  __kmp_read_system_time(&routine_timer);
 }

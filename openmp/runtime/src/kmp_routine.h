@@ -28,7 +28,7 @@ struct routine_stats
 {
     kmp_real64 execution_time = -1;
     kmp_real64 stall_ratio = -1; // Total cycle/stall cycle
-    kmp_real64 IPC = -1; // Total instructions/total cycles
+    kmp_real64 efficiency = -1; // IPC/execution_time
 
     // add some more stats of course
     // maybe taskloop idleness ratio, stall ratio etc
