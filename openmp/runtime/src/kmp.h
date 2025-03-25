@@ -20,7 +20,7 @@
 
 /* This fix replaces gettimeofday with clock_gettime for better scalability on
    the Altix.  Requires user code to be linked with -lrt. */
-//#define FIX_SGI_CLOCK
+// #define FIX_SGI_CLOCK
 
 /* Defines for OpenMP 3.0 tasking and auto scheduling */
 
@@ -126,8 +126,10 @@ class kmp_stats_list;
 
 #if PERF_COUNTERS
 #include "kmp_perf.h"
-#endif
+#ifdef AMD_PERF
 #include "kmp_perf_objects.h"
+#endif
+#endif
 
 #include "kmp_debug.h"
 #include "kmp_lock.h"
@@ -468,8 +470,9 @@ enum sched_type : kmp_int32 {
 #define SCHEDULE_WITHOUT_MODIFIERS(s)                                          \
   (enum sched_type)(                                                           \
       (s) & ~(kmp_sch_modifier_nonmonotonic | kmp_sch_modifier_monotonic))
-#define SCHEDULE_HAS_MONOTONIC(s) (((s)&kmp_sch_modifier_monotonic) != 0)
-#define SCHEDULE_HAS_NONMONOTONIC(s) (((s)&kmp_sch_modifier_nonmonotonic) != 0)
+#define SCHEDULE_HAS_MONOTONIC(s) (((s) & kmp_sch_modifier_monotonic) != 0)
+#define SCHEDULE_HAS_NONMONOTONIC(s)                                           \
+  (((s) & kmp_sch_modifier_nonmonotonic) != 0)
 #define SCHEDULE_HAS_NO_MODIFIERS(s)                                           \
   (((s) & (kmp_sch_modifier_nonmonotonic | kmp_sch_modifier_monotonic)) == 0)
 #define SCHEDULE_GET_MODIFIERS(s)                                              \
@@ -922,7 +925,7 @@ typedef struct kmp_affinity_attrs_t {
   unsigned reserved : 15;
 } kmp_affinity_attrs_t;
 #define KMP_AFFINITY_ATTRS_UNKNOWN                                             \
-  { KMP_HW_CORE_TYPE_UNKNOWN, kmp_hw_attr_t::UNKNOWN_CORE_EFF, 0, 0 }
+  {KMP_HW_CORE_TYPE_UNKNOWN, kmp_hw_attr_t::UNKNOWN_CORE_EFF, 0, 0}
 
 typedef struct kmp_affinity_t {
   char *proclist;
@@ -943,13 +946,22 @@ typedef struct kmp_affinity_t {
 } kmp_affinity_t;
 
 #define KMP_AFFINITY_INIT(env)                                                 \
-  {                                                                            \
-    nullptr, affinity_default, KMP_HW_UNKNOWN, -1, KMP_AFFINITY_ATTRS_UNKNOWN, \
-        0, 0,                                                                  \
-        {TRUE,  FALSE, TRUE, affinity_respect_mask_default, FALSE, FALSE,      \
-         FALSE, FALSE, FALSE},                                                 \
-        0, nullptr, nullptr, nullptr, 0, nullptr, env                          \
-  }
+  {nullptr,                                                                    \
+   affinity_default,                                                           \
+   KMP_HW_UNKNOWN,                                                             \
+   -1,                                                                         \
+   KMP_AFFINITY_ATTRS_UNKNOWN,                                                 \
+   0,                                                                          \
+   0,                                                                          \
+   {TRUE, FALSE, TRUE, affinity_respect_mask_default, FALSE, FALSE, FALSE,     \
+    FALSE, FALSE},                                                             \
+   0,                                                                          \
+   nullptr,                                                                    \
+   nullptr,                                                                    \
+   nullptr,                                                                    \
+   0,                                                                          \
+   nullptr,                                                                    \
+   env}
 
 extern enum affinity_top_method __kmp_affinity_top_method;
 extern kmp_affinity_t __kmp_affinity;
@@ -1082,7 +1094,7 @@ typedef enum {
   omp_atv_blocked = 17,
   omp_atv_interleaved = 18
 } omp_alloctrait_value_t;
-#define omp_atv_default ((omp_uintptr_t)-1)
+#define omp_atv_default ((omp_uintptr_t) - 1)
 
 typedef void *omp_memspace_handle_t;
 extern omp_memspace_handle_t const omp_default_mem_space;
@@ -1579,10 +1591,14 @@ static inline void __kmp_x86_pause(void) { _mm_pause(); }
 #endif
 
 #define KMP_INIT_YIELD(count)                                                  \
-  { (count) = __kmp_yield_init; }
+  {                                                                            \
+    (count) = __kmp_yield_init;                                                \
+  }
 
 #define KMP_INIT_BACKOFF(time)                                                 \
-  { (time) = __kmp_pause_init; }
+  {                                                                            \
+    (time) = __kmp_pause_init;                                                 \
+  }
 
 #define KMP_OVERSUBSCRIBED                                                     \
   (TCR_4(__kmp_nth) > (__kmp_avail_proc ? __kmp_avail_proc : __kmp_xproc))
@@ -2745,7 +2761,8 @@ typedef struct kmp_tasking_flags { /* Total struct must be exactly 32 bits */
   unsigned native : 1; /* 1==gcc-compiled task, 0==intel */
   unsigned target : 1;
 #if OMPX_TASKGRAPH
-  unsigned onced : 1; /* 1==ran once already, 0==never ran, record & replay purposes */
+  unsigned onced : 1; /* 1==ran once already, 0==never ran, record & replay
+                         purposes */
   unsigned reserved31 : 5; /* reserved for library use */
 #else
   unsigned reserved31 : 6; /* reserved for library use */
@@ -3039,19 +3056,20 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   kmp_uint32 th_reap_state; // Non-zero indicates thread is not
   // tasking, thus safe to reap
 
+#if PERF_COUNTERS
   // Perf counters for one task.
   // Resets when the task is finished.
-  kmp_int32 perf_stats[NUM_PERF_EVENTS]; 
+  kmp_int32 perf_stats[NUM_PERF_EVENTS];
   kmp_real64 time = 0.0;
 
   // Perf counters accumulated for all tasks running on a thread.
   // Resets when the taskloop is finished.
-  kmp_int64 perf_accum[NUM_PERF_EVENTS]; 
+  kmp_int64 perf_accum[NUM_PERF_EVENTS];
   kmp_real64 time_accum = 0.0;
 
   // Container for RAW perf events
   RawAMDPerfContainer perf_container;
-
+#endif
   // Routine id
   kmp_int64 routine_id;
 
@@ -3933,7 +3951,8 @@ extern void __kmp_check_stack_overlap(kmp_info_t *thr);
 extern void __kmp_expand_host_name(char *buffer, size_t size);
 extern void __kmp_expand_file_name(char *result, size_t rlen, char *pattern);
 
-#if KMP_ARCH_X86 || KMP_ARCH_X86_64 || (KMP_OS_WINDOWS && (KMP_ARCH_AARCH64 || KMP_ARCH_ARM))
+#if KMP_ARCH_X86 || KMP_ARCH_X86_64 ||                                         \
+    (KMP_OS_WINDOWS && (KMP_ARCH_AARCH64 || KMP_ARCH_ARM))
 extern void
 __kmp_initialize_system_tick(void); /* Initialize timer tick value */
 #endif
@@ -4321,7 +4340,6 @@ void __kmpc_omp_task_complete(ident_t *loc_ref, kmp_int32 gtid,
 
 KMP_EXPORT void __kmpc_taskgroup(ident_t *loc, int gtid);
 KMP_EXPORT void __kmpc_end_taskgroup(ident_t *loc, int gtid);
-
 
 KMP_EXPORT kmp_int32 __kmpc_omp_task_with_deps(
     ident_t *loc_ref, kmp_int32 gtid, kmp_task_t *new_task, kmp_int32 ndeps,

@@ -4937,7 +4937,8 @@ void __kmp_affinity_initialize(kmp_affinity_t &affinity) {
   __kmp_aux_affinity_initialize(affinity);
   if (disabled)
     affinity.type = affinity_disabled;
-  Schedule::__kmp_set_numa_affinity(&affinity, __kmp_topology->get_num_hw_threads());
+  Schedule::__kmp_set_numa_affinity(&affinity,
+                                    __kmp_topology->get_num_hw_threads());
 }
 
 void __kmp_affinity_uninitialize(void) {
@@ -5043,7 +5044,7 @@ void __kmp_affinity_set_init_mask(int gtid, int isa_root) {
   else
     affinity = &__kmp_affinity;
 
-  //Mask is unused will be set by __kmp_set_per_thread_affinity
+  // Mask is unused will be set by __kmp_set_per_thread_affinity
   __kmp_select_mask_by_gtid(gtid, affinity, &i, &mask);
   Schedule::__kmp_set_per_thread_affinity(th, gtid, i);
   return;
@@ -5121,9 +5122,10 @@ void __kmp_affinity_bind_init_mask(int gtid) {
     affinity = &__kmp_affinity;
   env_var = __kmp_get_affinity_env_var(*affinity, /*for_binding=*/true);
   /* to avoid duplicate printing (will be correctly printed on barrier) */
-  if (affinity->flags.verbose && (affinity->type == affinity_none ||
-                                  (th->th.th_current_place != KMP_PLACE_ALL &&
-                                   affinity->type != affinity_balanced)) &&
+  if (affinity->flags.verbose &&
+      (affinity->type == affinity_none ||
+       (th->th.th_current_place != KMP_PLACE_ALL &&
+        affinity->type != affinity_balanced)) &&
       !KMP_HIDDEN_HELPER_MAIN_THREAD(gtid)) {
     char buf[KMP_AFFIN_MASK_PRINT_LEN];
     __kmp_affinity_print_mask(buf, KMP_AFFIN_MASK_PRINT_LEN,
@@ -5154,11 +5156,10 @@ void __kmp_affinity_bind_place(int gtid) {
 
   kmp_info_t *th = (kmp_info_t *)TCR_SYNC_PTR(__kmp_threads[gtid]);
 
-  //Affinity is already setup
-  if (th->th.force_affin == 1){
+  // Affinity is already setup
+  if (th->th.force_affin == 1) {
     return;
   }
-
 
   KA_TRACE(100, ("__kmp_affinity_bind_place: binding T#%d to place %d (current "
                  "place = %d)\n",

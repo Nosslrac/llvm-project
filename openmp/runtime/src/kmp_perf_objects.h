@@ -10,10 +10,12 @@ enum EventCodes : uint64_t {
 
 struct AMDRawResults {
   explicit AMDRawResults()
-    : totDisp(0), backend(0), backendMem(0), backendCPU(0) {};
-  explicit AMDRawResults(uint64_t disp, double bound, double boundMem, double boundCPU)
-    : totDisp(disp), backend(bound), backendMem(boundMem), backendCPU(boundCPU) {};
-  AMDRawResults& operator+=(const AMDRawResults& other);
+      : totDisp(0), backend(0), backendMem(0), backendCPU(0) {};
+  explicit AMDRawResults(uint64_t disp, double bound, double boundMem,
+                         double boundCPU)
+      : totDisp(disp), backend(bound), backendMem(boundMem),
+        backendCPU(boundCPU) {};
+  AMDRawResults &operator+=(const AMDRawResults &other);
   AMDRawResults avg(int32_t nthreads);
 
   uint64_t totDisp;
@@ -25,8 +27,7 @@ struct AMDRawResults {
 ///////////////////////////////
 /// @brief Raw event slots  ///
 ///////////////////////////////
-template<EventCodes code>
-class AMDRawEvent {
+template <EventCodes code> class AMDRawEvent {
 public:
   explicit AMDRawEvent(int32_t cpu_id);
 

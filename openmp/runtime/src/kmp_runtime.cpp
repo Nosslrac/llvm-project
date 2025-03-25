@@ -588,9 +588,7 @@ static void __kmp_fini_allocator() { __kmp_fini_memkind(); }
 /* ------------------------------------------------------------------------ */
 
 #if ENABLE_LIBOMPTARGET
-static void __kmp_init_omptarget() {
-  __kmp_init_target_task();
-}
+static void __kmp_init_omptarget() { __kmp_init_target_task(); }
 #endif
 
 /* ------------------------------------------------------------------------ */
@@ -3306,7 +3304,8 @@ static kmp_internal_control_t __kmp_get_global_icvs(void) {
   KMP_DEBUG_ASSERT(__kmp_nested_proc_bind.used > 0);
 
   kmp_internal_control_t g_icvs = {
-    0, // int serial_nesting_level; //corresponds to value of th_team_serialized
+      0, // int serial_nesting_level; //corresponds to value of
+         // th_team_serialized
       (kmp_int8)__kmp_global.g.g_dynamic, // internal control for dynamic
       // adjustment of threads (per thread)
       (kmp_int8)__kmp_env_blocktime, // int bt_set; //internal control for
@@ -3326,8 +3325,7 @@ static kmp_internal_control_t __kmp_get_global_icvs(void) {
       // for max_active_levels
       r_sched, // kmp_r_sched_t sched; //internal control for runtime schedule
       // {sched,chunk} pair
-    __kmp_nested_proc_bind.bind_types[0],
-    __kmp_default_device,
+      __kmp_nested_proc_bind.bind_types[0], __kmp_default_device,
       NULL // struct kmp_internal_control *next;
   };
 
@@ -6129,7 +6127,6 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   Perf::__kmp_disable_counters(this_thr);
 #endif
 
-
   this_thr->th.th_task_team = NULL;
   /* run the destructors for the threadprivate data for this thread */
   __kmp_common_destroy_gtid(gtid);
@@ -6176,7 +6173,7 @@ void __kmp_internal_end_atexit(void) {
   // Close all file descriptors for perf events for this thread
   // This is only executed by the master thread
   Perf::__kmp_disable_counters(__kmp_thread_from_gtid(gtid));
-  #endif
+#endif
 
   /* [Windows]
      josh: ideally, we want to completely shutdown the library in this atexit
@@ -7615,10 +7612,11 @@ void __kmp_parallel_initialize(void) {
   }
 
 #if PERF_COUNTERS
-  KA_TRACE(5, ("__kmp_parallel_initialize: Initializing perf events, T#%d\n", gtid));
+  KA_TRACE(
+      5, ("__kmp_parallel_initialize: Initializing perf events, T#%d\n", gtid));
   // Open file descriptors for all perf events for the master thread
   // (All other threads will run init_counters from __kmp_launch_thread() )
-  Perf::__kmp_init_counters(  __kmp_thread_from_gtid(gtid), gtid);
+  Perf::__kmp_init_counters(__kmp_thread_from_gtid(gtid), gtid);
 #endif
 
   /* we have finished parallel initialization */
