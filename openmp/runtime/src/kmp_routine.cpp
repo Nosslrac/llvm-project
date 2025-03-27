@@ -308,9 +308,9 @@ void Routine::storeExecution(routine_stats stats) {
         stats.execution_time, stats.stall_ratio, stats.efficiency));
 
 
-    // For now, we select the most efficient config.
+    // For now, we select the fastest config.
     // In future, we might do cumulative average etc.
-    if (execution_history.at(current_config).efficiency < stats.efficiency)
+    if (execution_history.at(current_config).execution_time > stats.execution_time)
         execution_history.at(current_config) = stats;
     
 
