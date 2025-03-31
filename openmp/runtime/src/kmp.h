@@ -3067,8 +3067,10 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   kmp_int64 perf_accum[NUM_PERF_EVENTS];
   kmp_real64 time_accum = 0.0;
 
+#ifdef AMD_PERF
   // Container for RAW perf events
   RawAMDPerfContainer perf_container;
+#endif
 #endif
   // Routine id
   kmp_int64 routine_id;

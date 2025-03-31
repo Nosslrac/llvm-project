@@ -6019,7 +6019,7 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   kmp_team_t **volatile pteam;
 
   KMP_MB();
-  KA_TRACE(2, ("__kmp_launch_thread: T#%d start\n", gtid));
+  KA_TRACE(3, ("__kmp_launch_thread: T#%d start\n", gtid));
 
 #if PERF_COUNTERS
   // Open file descriptors for all perf events for this thread
@@ -6059,7 +6059,7 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
     KMP_MB();
 
     /* wait for work to do */
-    KA_TRACE(2, ("__kmp_launch_thread: T#%d waiting for work\n", gtid));
+    KA_TRACE(3, ("__kmp_launch_thread: T#%d waiting for work\n", gtid));
 
     /* No tid yet since not part of a team */
     __kmp_fork_barrier(gtid, KMP_GTID_DNE);

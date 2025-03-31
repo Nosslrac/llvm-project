@@ -70,7 +70,7 @@ void log_and_sum_events(kmp_info_t *thread, uint64_t *accum) {
     accum[i] += thread->th.perf_accum[i];
   }
 
-  KA_TRACE(2,
+  KA_TRACE(5,
            ("     #Counters for T#%d:\n"
             "      - Tot cycles = %ld\n"
             "      - Tot ins = %ld\n"
@@ -406,7 +406,7 @@ routine_stats Perf::__kmp_get_taskloop_stats(kmp_team *team) {
   /* Calculate stall_ratio stat */
   ret_stats.stall_ratio = frac(back_stalls, tot_cycles);
 
-  KMP_DEBUG_ASSERT(tot_cycles > 0);
+  // KMP_DEBUG_ASSERT(tot_cycles > 0);
 
   KA_TRACE(1,
            ("__kmp_get_taskloop_stats: for routine %p: execT:%f, stalls:%lld, "

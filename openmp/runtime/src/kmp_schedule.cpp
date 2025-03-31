@@ -1,5 +1,6 @@
 #include "kmp_schedule.h"
 
+#include "hwloc.h"
 #include "kmp.h"
 #include "kmp_debug.h"
 #include <unordered_map>
@@ -29,8 +30,15 @@ inline int bitScan(kmp_uint64 mask) {
 #endif
 }
 
-inline int min(const int a, const int b) {
+inline kmp_uint64 min(const kmp_uint64 a, const kmp_uint64 b) {
   if (a < b) {
+    return a;
+  }
+  return b;
+}
+
+inline kmp_uint64 max(const kmp_uint64 a, const kmp_uint64 b) {
+  if (a > b) {
     return a;
   }
   return b;
@@ -43,6 +51,9 @@ std::unordered_map<kmp_int64, Routine>
 kmp_real64 routine_timer;
 
 // Routine stuff end
+
+// Topology info
+const NumaTopology numa_topology = Schedule::__kmp_read_topology();
 
 void __kmp_alloc_task_deque(kmp_thread_data_t *thread_data, int32_t gtid) {
 
@@ -131,11 +142,11 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   // TODO: use topology to decide this.
   // TODO: enable the use of "half" numa nodes, right
   //       now only whole numa nodes can be used.
-  const auto numaNodeSize = 8;
-  const auto nNumaNodes = nthreads / numaNodeSize;
+  const auto nNumaNodes = numa_topology.get_num_numa();
+  const auto numaNodeSize = nthreads / nNumaNodes;
 
   const auto midRange = (lb + ub) / 2;
-  const auto bucketSize = glob_ub / nNumaNodes;
+  const auto bucketSize = max(glob_ub / nNumaNodes, 1);
   auto numaId = midRange / bucketSize;
   numaId = min(numaId, nNumaNodes - 1); // Round down for last iterations
   const auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
@@ -267,4 +278,33 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread,
 
 void Schedule::__kmp_start_routine_timer() {
   __kmp_read_system_time(&routine_timer);
+}
+
+///////////////////////////////////////////////
+///               Topology section          ///
+///////////////////////////////////////////////
+
+NumaTopology Schedule::__kmp_read_topology() {
+  hwloc_topology_t topology = nullptr;
+  // Load topology
+  if (hwloc_topology_init(&topology) == -1) {
+    KMP_FATAL(MsgExiting, "Hardware topology not read");
+    return NumaTopology(0, 0);
+  }
+  if (hwloc_topology_load(topology) == -1) {
+    KMP_FATAL(MsgExiting, "Hardware topology not read");
+    return NumaTopology(0, 0);
+  }
+
+  // Get relevant intro
+  const auto nNumaNodes =
+      max(1, hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE));
+  const auto nthreads =
+      max(1, hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_CORE));
+
+  KA_TRACE(2, ("__kmp_read_topology: Number of NUMA nodes detected to %d, "
+               "total cores = %d\n",
+               nNumaNodes, nthreads));
+  return NumaTopology(static_cast<uint32_t>(nNumaNodes),
+                      static_cast<uint32_t>(nthreads));
 }

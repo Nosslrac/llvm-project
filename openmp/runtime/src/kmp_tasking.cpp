@@ -691,7 +691,7 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
 #endif
 
   const int cpu = sched_getcpu();
-  KA_TRACE(2, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
+  KA_TRACE(4, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
                "Routine = %p\n",
                __FILE_NAME__, __LINE__, gtid, cpu, taskdata, task->routine));
 

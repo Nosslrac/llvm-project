@@ -5046,6 +5046,7 @@ void __kmp_affinity_set_init_mask(int gtid, int isa_root) {
 
   // Mask is unused will be set by __kmp_set_per_thread_affinity
   __kmp_select_mask_by_gtid(gtid, affinity, &i, &mask);
+  KMP_DEBUG_ASSERT(mask);
   Schedule::__kmp_set_per_thread_affinity(th, gtid, i);
   return;
 
