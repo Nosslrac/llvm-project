@@ -216,7 +216,7 @@ void Schedule::__kmp_set_numa_affinity(kmp_affinity_t *global_affin,
     KMP_CPU_ZERO(mask);
   }
 
-  KA_TRACE(1,
+  KA_TRACE(5,
            ("Affinity:\n"
             "Proclist: %p\n"
             "Affinity type: %d\n"
@@ -240,7 +240,7 @@ void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id,
   // Verify that the routine exists in the map
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
 
-  KA_TRACE(1, ("__kmp_store_routine_stats: New stat store for routine %p:"
+  KA_TRACE(2, ("__kmp_store_routine_stats: New stat store for routine %p:"
                " tot_exec_time:%f, stall_ratio:%f\n",
                routine_id, stats.execution_time, stats.stall_ratio));
 

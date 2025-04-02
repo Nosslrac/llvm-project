@@ -99,7 +99,7 @@ routine_config Routine::getNextConfig() {
     KMP_DEBUG_ASSERT(fastest_time < DBL_MAX);
     KMP_DEBUG_ASSERT(second_fastest_time < DBL_MAX);
 
-    KA_TRACE(1, ("\nRoutine::getNextConfig():"
+    KA_TRACE(2, ("\nRoutine::getNextConfig():"
                  " Comparing old configs for routine %p. \n"
                  "Fastest config={%d, %d, %d} execT=%f, "
                  " Second fastest={%d, %d, %d} execT=%f.\n",
@@ -133,7 +133,7 @@ routine_config Routine::getNextConfig() {
 
       minima_found = true;
       next_config = fastest;
-      KA_TRACE(1, ("Routine::getNextConfig(): Minima found!"
+      KA_TRACE(2, ("Routine::getNextConfig(): Minima found!"
                    " Fastest config selected.\n"))
     }
 
@@ -146,7 +146,7 @@ routine_config Routine::getNextConfig() {
       // maybe???
       next_config.num_tasks = next_config.num_threads * 10;
 
-      KA_TRACE(1, ("Routine::getNextConfig(): Selecting new config"
+      KA_TRACE(2, ("Routine::getNextConfig(): Selecting new config"
                    " based on thread diff: %d, new number of threads: %d "
                    "(min:%d + diff/2:%d).\n",
                    diff_threads, next_config.num_threads,
@@ -172,7 +172,7 @@ void Routine::storeExecution(routine_stats stats) {
     execution_history.emplace(current_config, stats);
 
     KA_TRACE(
-        1,
+        2,
         ("\nRoutine:storeExecution: routine %p inserted new config={%d, %d, %d}"
          "\nwith the stats={ExecT=%f, StallRatio=%f}\n",
          routine_id, current_config.num_threads, current_config.num_tasks,
@@ -181,7 +181,7 @@ void Routine::storeExecution(routine_stats stats) {
     return;
   }
 
-  KA_TRACE(1, ("Routine:storeExecution: routine %p has new stats for "
+  KA_TRACE(2, ("Routine:storeExecution: routine %p has new stats for "
                "config={%d, %d, %d}.\n"
                "Old stats={ExecT=%f, StallRatio=%f}, New stats={ExecT=%f, "
                "StallRatio=%f}\n",

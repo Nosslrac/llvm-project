@@ -4977,7 +4977,7 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
   // (used in bothom of this function)
   kmp_real64 current_time = 0;
   __kmp_read_system_time(&current_time);
-  KA_TRACE(1, ("__kmp_taskloop_linear: For loop: T#%d: %lu tasks\n", gtid,
+  KA_TRACE(2, ("__kmp_taskloop_linear: For loop: T#%d: %lu tasks\n", gtid,
                num_tasks));
 
   // Launch num_tasks tasks, assign grainsize iterations each task
@@ -5059,7 +5059,7 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
   __kmp_read_system_time(&schedule_finish);
   schedule_finish = schedule_finish - current_time;
 
-  KA_TRACE(1, ("%s:%d: __kmp_taskloop_linear: Elapsed scheduling overhead"
+  KA_TRACE(2, ("%s:%d: __kmp_taskloop_linear: Elapsed scheduling overhead"
                " time=%lf for routine %p\n",
                __FILE_NAME__, __LINE__, schedule_finish,
                (kmp_int64)task->routine));
@@ -5278,14 +5278,8 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
 
 #if OMPT_SUPPORT
   // schedule new task with correct return address for OMPT events
-  KA_TRACE(1, ("%s:%d: __kmp_taskloop_recur: OMPT T#%d setting up tasks. "
-               "Grainsize=%d\n",
-               __FILE_NAME__, __LINE__, gtid, grainsize));
   __kmp_omp_taskloop_task(NULL, gtid, new_task, codeptr_ra);
 #else
-  KA_TRACE(1, ("%s:%d: __kmp_taskloop_recur: NOTOMPT T#%d setting up tasks. "
-               "Grainsize=%d\n",
-               __FILE_NAME__, __LINE__, gtid, grainsize));
   __kmp_omp_task(gtid, new_task, true); // schedule new task
 #endif
 
@@ -5378,7 +5372,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
         KMP_MIN(thread->th.th_team_nproc * 10, INITIAL_TASK_DEQUE_SIZE);
   }
 
-  KA_TRACE(1, ("__kmp_taskloop: T#%d, task %p, lb %lld, ub %lld, st %lld, "
+  KA_TRACE(2, ("__kmp_taskloop: T#%d, task %p, lb %lld, ub %lld, st %lld, "
                "grain %llu(%d, %d), dup %p\n",
                gtid, taskdata, lower, upper, st, grainsize, sched, modifier,
                task_dup));
@@ -5495,7 +5489,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     __kmpc_end_taskgroup(loc, gtid);
   }
 
-  KA_TRACE(1, ("__kmp_taskloop(exit): T#%d\n", gtid));
+  KA_TRACE(2, ("__kmp_taskloop(exit): T#%d\n", gtid));
 }
 
 /*!
