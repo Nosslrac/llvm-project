@@ -275,7 +275,14 @@ void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
                "      - Backend stalls = %ld\n"
                "      - Page faults = %ld\n"
 #ifdef AMD_PERF
+               "  # AMD raw ratios:\n"
                "      - TotDisp = %lu\n"
+               "      - L1 Fills All = %lu\n"
+               "      - L1 Fills Different NUMA = %lu\n"
+               "      - L1 Fills same CXX = %lu\n"
+               "      - L1 Fills another CXX = %lu\n"
+               "      - L3 Misses = %lu\n"
+               "      - Retiring fraction = %lf\n"
                "      - Backend bound = %lf\n"
                "      - Backend bound Memory = %lf\n"
                "      - Backend bound CPU = %lf\n"
@@ -283,11 +290,15 @@ void Perf::__kmp_stop_counters(kmp_info_t *thread, int32_t gtid,
                "      - Execution time = %f\n",
                __FILE_NAME__, __LINE__, task_id, thread->th.routine_id, cpu_id,
                gtid, tot_cycles, tot_ins, cache_refs, llc_misses, back_stall,
-               page_fault,
+               page_fault
 #ifdef AMD_PERF
-               results.totDisp, results.backend, results.backendMem,
-               results.backendCPU,
+               ,
+               results.m_totDisp, results.m_l1All, results.m_l1DiffNuma,
+               results.m_l1SameCXX, results.m_l1AnotherCXX, results.m_l3Miss,
+               results.m_retiring, results.m_backend, results.m_backendMem,
+               results.m_backendCPU
 #endif
+               ,
                elapsed_time));
 }
 
@@ -303,10 +314,6 @@ void Perf::__kmp_disable_counters(kmp_info_t *thread) {
 #ifdef AMD_PERF
   thread->th.perf_container.disableAll();
 #endif
-
-  KA_TRACE(2, ("%s:%d: __kmp_disable_counters(exit): T#%d = CPU#%d.\n ",
-               __FILE_NAME__, __LINE__, __kmp_gtid_from_thread(thread),
-               sched_getcpu()));
 }
 
 void Perf::__kmp_summarize_taskloop(kmp_team *team) {
@@ -314,7 +321,7 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
   AMDRawResults accumAMD;
 #endif
   uint64_t accum[NUM_PERF_EVENTS] = {};
-  int32_t nthreads = team->t.t_nproc;
+  uint32_t nthreads = team->t.t_nproc;
 
   KA_TRACE(1, ("\n%s:%d: __kmp_summarize_taskloop: Summarizing"
                " stats for routine %p \n",
@@ -346,6 +353,12 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
 #ifdef AMD_PERF
                "  # AMD raw ratios:\n"
                "      - TotDisp = %lu\n"
+               "      - L1 Fills All = %lu\n"
+               "      - L1 Fills Different NUMA = %lu\n"
+               "      - L1 Fills same CXX = %lu\n"
+               "      - L1 Fills another CXX = %lu\n"
+               "      - L3 Misses = %lu\n"
+               "      - Retiring fraction = %lf\n"
                "      - Backend bound = %lf\n"
                "      - Backend bound Memory = %lf\n"
                "      - Backend bound CPU = %lf\n"
@@ -366,8 +379,10 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
                     accum[perf_id(PerfEvents::TOT_CYCLES)])
 #ifdef AMD_PERF
                    ,
-               accumAMD.totDisp, accumAMD.backend, accumAMD.backendMem,
-               accumAMD.backendCPU
+               accumAMD.m_totDisp, accumAMD.m_l1All, accumAMD.m_l1DiffNuma,
+               accumAMD.m_l1SameCXX, accumAMD.m_l1AnotherCXX, accumAMD.m_l3Miss,
+               accumAMD.m_retiring, accumAMD.m_backend, accumAMD.m_backendMem,
+               accumAMD.m_backendCPU
 #endif
                ));
 }
