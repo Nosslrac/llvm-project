@@ -502,7 +502,7 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   }
 
   kmp_task_team_t *task_team = thread->th.th_task_team;
-  // kmp_int32 tid = __kmp_tid_from_gtid(gtid);
+  kmp_int32 tid = __kmp_tid_from_gtid(gtid);
   kmp_thread_data_t *thread_data;
 
   KA_TRACE(20,
@@ -544,7 +544,8 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
 
   // Find tasking deque specific to encountering thread
   // thread_data = &task_team->tt.tt_threads_data[tid];
-  thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata);
+  // thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata);
+  thread_data = &task_team->tt.tt_threads_data[tid];
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
   // we don't need it either because we have initialized the dequeue for hidden
@@ -3328,16 +3329,16 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
   KMP_DEBUG_ASSERT(taskdata);
   current = __kmp_threads[gtid]->th.th_current_task;
   taskdata = victim_td->td.td_deque[victim_td->td.td_deque_head];
-  const auto tidBit = 1ULL << __kmp_tid_from_gtid(gtid);
-  if ((tidBit & taskdata->td_affin_mask) == 0) {
-    __kmp_release_bootstrap_lock(&victim_td->td.td_deque_lock);
-    KA_TRACE(5, ("__kmp_steal_task: T#%d(tid=%d): steal not allowed from "
-                 "T#%d(tid=%d): That thread is not part of our NUMA node\n",
-                 gtid, __kmp_tid_from_gtid(gtid),
-                 __kmp_gtid_from_thread(victim_thr),
-                 __kmp_tid_from_gtid(__kmp_gtid_from_thread(victim_thr))));
-    return NULL;
-  }
+  /*   const auto tidBit = 1ULL << __kmp_tid_from_gtid(gtid);
+    if ((tidBit & taskdata->td_affin_mask) == 0) {
+      __kmp_release_bootstrap_lock(&victim_td->td.td_deque_lock);
+      KA_TRACE(5, ("__kmp_steal_task: T#%d(tid=%d): steal not allowed from "
+                   "T#%d(tid=%d): That thread is not part of our NUMA node\n",
+                   gtid, __kmp_tid_from_gtid(gtid),
+                   __kmp_gtid_from_thread(victim_thr),
+                   __kmp_tid_from_gtid(__kmp_gtid_from_thread(victim_thr))));
+      return NULL;
+    } */
 
   if (__kmp_task_is_allowed(gtid, is_constrained, taskdata, current)) {
     // Bump head pointer and Wrap.
@@ -5041,9 +5042,11 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
               gtid, i, next_task, lower, upper, st,
               next_task_bounds.get_lower_offset(),
               next_task_bounds.get_upper_offset()));
+
     // Set affinity mask for taskdata based on taskloop_linear config
-    Schedule::__kmp_set_task_affinity(
-        thread, next_taskdata, (kmp_int64)task->routine, lower, upper, ub_glob);
+    // Schedule::__kmp_set_task_affinity(thread, next_taskdata,
+    // (kmp_int64)task->routine, lower, upper, ub_glob);
+    Schedule::__kmp_set_any_affinity(next_taskdata);
 
 #if OMPT_SUPPORT
     __kmp_omp_taskloop_task(NULL, gtid, next_task,
@@ -5434,7 +5437,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
 
-  Schedule::__kmp_show_affinity(thread);
+  // Schedule::__kmp_show_affinity(thread);
   thread->th.th_team->t.t_proc_bind = proc_bind_true;
 
   Schedule::__kmp_start_routine_timer();
