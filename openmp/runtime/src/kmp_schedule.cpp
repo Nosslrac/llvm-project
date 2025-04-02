@@ -80,6 +80,8 @@ void __kmp_alloc_task_deque(kmp_thread_data_t *thread_data, int32_t gtid) {
 
 kmp_info_t *__kmp_select_thread(kmp_team *team, kmp_taskdata_t *taskdata,
                                 int32_t nthreads) {
+  KMP_DEBUG_ASSERT(taskdata);
+
   // Divide the threads equally accross NUMA nodes
   const auto nNumaNodes = nthreads / 8; // TODO: use topology to decide this
   const auto node =
@@ -98,6 +100,9 @@ kmp_info_t *__kmp_select_thread(kmp_team *team, kmp_taskdata_t *taskdata,
 kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
                                                   kmp_task_team *task_team,
                                                   kmp_taskdata_t *taskdata) {
+
+  KMP_DEBUG_ASSERT(taskdata);
+
   int32_t nthreads = task_team->tt.tt_nproc;
   kmp_team *team = master_thread->th.th_team;
   kmp_info_t *base_numa = __kmp_select_thread(
@@ -121,6 +126,7 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
 
 //
 void Schedule::__kmp_set_any_affinity(kmp_taskdata_t *taskdata) {
+  KMP_DEBUG_ASSERT(taskdata);
   taskdata->td_affin_mask = ALL_PROCS;
   KA_TRACE(3, ("__kmp_set_any_affinity: Setting any affinity child task %p of "
                "parent %p\n",
@@ -131,11 +137,18 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
                                        kmp_taskdata_t *taskdata,
                                        kmp_int64 routine_id, kmp_uint64 lb,
                                        kmp_uint64 ub, kmp_uint64 glob_ub) {
+  KMP_DEBUG_ASSERT(taskdata);
+
   kmp_team_t *team = thread->th.th_team;
   int32_t nthreads = team->t.t_nproc;
 
+  KA_TRACE(3, (" __kmp_set_task_affinity (enter): nproc:%d,"
+               " lb:%lld, ub:%lld, glob_ub:%lld\n",
+               thread->th.th_team_nproc, lb, ub, glob_ub));
+
   // Moldability: the number of threads used
   // are determined by the selected config.
+  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
   routine_config config = routine_map.at(routine_id).getCurrentConfig();
   nthreads = config.num_threads;
 
@@ -143,7 +156,7 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   // TODO: enable the use of "half" numa nodes, right
   //       now only whole numa nodes can be used.
   const auto nNumaNodes = numa_topology.get_num_numa();
-  const auto numaNodeSize = nthreads / nNumaNodes;
+  const auto numaNodeSize = max(nthreads / nNumaNodes, 1);
 
   const auto midRange = (lb + ub) / 2;
   const auto bucketSize = max(glob_ub / nNumaNodes, 1);

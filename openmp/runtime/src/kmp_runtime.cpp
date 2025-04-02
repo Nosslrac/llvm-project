@@ -29,7 +29,7 @@
 #include "kmp_dispatch_hier.h"
 #endif
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
 #include "kmp_perf.h"
 #endif
 
@@ -4428,7 +4428,7 @@ kmp_info_t *__kmp_allocate_thread(kmp_root_t *root, kmp_team_t *team,
   kmp_info_t *new_thr;
   int new_gtid;
 
-  KA_TRACE(20, ("__kmp_allocate_thread: T#%d\n", __kmp_get_gtid()));
+  KA_TRACE(5, ("__kmp_allocate_thread: T#%d\n", __kmp_get_gtid()));
   KMP_DEBUG_ASSERT(root && team);
 #if !KMP_NESTED_HOT_TEAMS
   KMP_DEBUG_ASSERT(KMP_MASTER_GTID(__kmp_get_gtid()));
@@ -5402,12 +5402,11 @@ __kmp_allocate_team(kmp_root_t *root, int new_nproc, int max_nproc,
           KMP_DEBUG_ASSERT(new_worker);
           team->t.t_threads[f] = new_worker;
 
-          KA_TRACE(20,
-                   ("__kmp_allocate_team: team %d init T#%d arrived: "
-                    "join=%llu, plain=%llu\n",
-                    team->t.t_id, __kmp_gtid_from_tid(f, team), team->t.t_id, f,
-                    team->t.t_bar[bs_forkjoin_barrier].b_arrived,
-                    team->t.t_bar[bs_plain_barrier].b_arrived));
+          KA_TRACE(5, ("__kmp_allocate_team: team %d init T#%d arrived: "
+                       "join=%llu, plain=%llu\n",
+                       team->t.t_id, __kmp_gtid_from_tid(f, team), team->t.t_id,
+                       f, team->t.t_bar[bs_forkjoin_barrier].b_arrived,
+                       team->t.t_bar[bs_plain_barrier].b_arrived));
 
           { // Initialize barrier data for new threads.
             int b;
@@ -6021,7 +6020,7 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   KMP_MB();
   KA_TRACE(3, ("__kmp_launch_thread: T#%d start\n", gtid));
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
   // Open file descriptors for all perf events for this thread
   Perf::__kmp_init_counters(this_thr, gtid);
 #endif
@@ -6122,7 +6121,7 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   }
 #endif
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
   // Close all file descriptors for perf events for this thread
   Perf::__kmp_disable_counters(this_thr);
 #endif
@@ -6167,7 +6166,7 @@ __attribute__((destructor)) void __kmp_internal_end_dtor(void) {
 void __kmp_internal_end_atexit(void) {
   KA_TRACE(30, ("__kmp_internal_end_atexit\n"));
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
   int gtid = __kmp_get_gtid();
 
   // Close all file descriptors for perf events for this thread
@@ -7454,6 +7453,16 @@ static void __kmp_do_middle_initialize(void) {
 
 #endif /* KMP_AFFINITY_SUPPORTED */
 
+#ifdef PERF_COUNTERS
+  int gtid = __kmp_entry_gtid(); // this might be a new root
+
+  KA_TRACE(5, ("__kmp_do_middle_initialize: Initializing perf events, T#%d\n",
+               gtid));
+  // Open file descriptors for all perf events for the master thread
+  // (All other threads will run init_counters from __kmp_launch_thread() )
+  Perf::__kmp_init_counters(__kmp_thread_from_gtid(gtid), gtid);
+#endif
+
   KMP_ASSERT(__kmp_xproc > 0);
   if (__kmp_avail_proc == 0) {
     __kmp_avail_proc = __kmp_xproc;
@@ -7610,14 +7619,6 @@ void __kmp_parallel_initialize(void) {
   if (__kmp_version) {
     __kmp_print_version_2();
   }
-
-#if PERF_COUNTERS
-  KA_TRACE(
-      5, ("__kmp_parallel_initialize: Initializing perf events, T#%d\n", gtid));
-  // Open file descriptors for all perf events for the master thread
-  // (All other threads will run init_counters from __kmp_launch_thread() )
-  Perf::__kmp_init_counters(__kmp_thread_from_gtid(gtid), gtid);
-#endif
 
   /* we have finished parallel initialization */
   TCW_SYNC_4(__kmp_init_parallel, TRUE);

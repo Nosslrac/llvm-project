@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
 
 namespace {
 inline constexpr int perf_id(PerfEvents event) {
@@ -420,8 +420,6 @@ routine_stats Perf::__kmp_get_taskloop_stats(kmp_team *team) {
 
   /* Calculate stall_ratio stat */
   ret_stats.stall_ratio = frac(back_stalls, tot_cycles);
-
-  // KMP_DEBUG_ASSERT(tot_cycles > 0);
 
   KA_TRACE(1,
            ("__kmp_get_taskloop_stats: for routine %p: execT:%f, stalls:%lld, "

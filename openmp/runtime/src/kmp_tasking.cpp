@@ -23,7 +23,7 @@
 #include "kmp_routine.h"
 #include <sched.h>
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
 #include "kmp_perf.h"
 #endif
 
@@ -686,7 +686,7 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
   kmp_info_t *thread = __kmp_threads[gtid];
   thread->th.routine_id = (kmp_int64)task->routine;
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
   Perf::__kmp_start_counters(thread);
 #endif
 
@@ -1060,7 +1060,7 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   kmp_task_team_t *task_team =
       thread->th.th_task_team; // might be NULL for serial teams...
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
   Perf::__kmp_stop_counters(thread, gtid, (kmp_int64)taskdata);
 #endif
 
@@ -3081,7 +3081,7 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
 
   routine_stats stats = {0, 0};
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
   Perf::__kmp_summarize_taskloop(thread->th.th_team);
   stats = Perf::__kmp_get_taskloop_stats(thread->th.th_team);
   Perf::__kmp_reset_taskloop_stats(thread->th.th_team);
@@ -3323,6 +3323,7 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
   }
 
   KMP_DEBUG_ASSERT(victim_td->td.td_deque != NULL);
+  KMP_DEBUG_ASSERT(taskdata);
   current = __kmp_threads[gtid]->th.th_current_task;
   taskdata = victim_td->td.td_deque[victim_td->td.td_deque_head];
   const auto tidBit = 1ULL << __kmp_tid_from_gtid(gtid);
@@ -4764,6 +4765,8 @@ kmp_task_t *__kmp_task_dup_alloc(kmp_info_t *thread, kmp_task_t *task_src
 #endif /* USE_FAST_MEMORY */
   KMP_MEMCPY(taskdata, taskdata_src, task_size);
 
+  KMP_DEBUG_ASSERT(taskdata);
+
   task = KMP_TASKDATA_TO_TASK(taskdata);
 
   // Initialize new task (only specific fields not affected by memcpy)
@@ -4968,10 +4971,10 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
                              (last_chunk < 0 ? last_chunk : extras));
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
-  KA_TRACE(20, ("__kmp_taskloop_linear: T#%d: %lld tasks, grainsize %lld, "
-                "extras %lld, last_chunk %lld, i=%lld,%lld(%d)%lld, dup %p\n",
-                gtid, num_tasks, grainsize, extras, last_chunk, lower, upper,
-                ub_glob, st, task_dup));
+  KA_TRACE(5, ("__kmp_taskloop_linear: T#%d: %lld tasks, grainsize %lld, "
+               "extras %lld, last_chunk %lld, i=%lld,%lld(%d)%lld, dup %p\n",
+               gtid, num_tasks, grainsize, extras, last_chunk, lower, upper,
+               ub_glob, st, task_dup));
 
   // Read system time for calculating schdeuling overhead
   // (used in bothom of this function)

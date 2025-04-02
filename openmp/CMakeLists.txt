@@ -19,8 +19,8 @@ else()
 endif()
 
 # ME1
-add_definitions(-DPERF_COUNTERS=1)
-add_definitions(-DAMD_PERF)
+add_definitions(-DPERF_COUNTERS)
+#add_definitions(-DAMD_PERF)
 #add_definitions(-DMOLDABILITY)
 # ME2
 

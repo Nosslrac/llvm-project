@@ -124,7 +124,7 @@ class kmp_stats_list;
 #define KMP_INTERNAL_REALLOC(p, sz) realloc((p), (sz))
 #define KMP_INTERNAL_CALLOC(n, sz) calloc((n), (sz))
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
 #include "kmp_perf.h"
 #ifdef AMD_PERF
 #include "kmp_perf_objects.h"
@@ -3056,7 +3056,7 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   kmp_uint32 th_reap_state; // Non-zero indicates thread is not
   // tasking, thus safe to reap
 
-#if PERF_COUNTERS
+#ifdef PERF_COUNTERS
   // Perf counters for one task.
   // Resets when the task is finished.
   kmp_int32 perf_stats[NUM_PERF_EVENTS];
