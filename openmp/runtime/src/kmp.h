@@ -3061,6 +3061,7 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   // Resets when the task is finished.
   kmp_int32 perf_stats[NUM_PERF_EVENTS];
   kmp_real64 time = 0.0;
+  kmp_real64 task_finish_time = 0.0;
 
   // Perf counters accumulated for all tasks running on a thread.
   // Resets when the taskloop is finished.

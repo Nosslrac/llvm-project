@@ -42,6 +42,18 @@ const char *enumToString(EventCodes event) {
     return "BackendNumerator";
   case EventCodes::BACKEND_MEM_DENOMINATOR:
     return "BackendDenominator";
+  case EventCodes::RETIRING:
+    return "RETIRING";
+  case EventCodes::L1CACHE_FILL_ALL:
+    return "L1CACHE_FILL_ALL";
+  case EventCodes::L1CACHE_FILL_DIFFERENT_NUMA:
+    return "L1CACHE_FILL_DIFFERENT_NUMA";
+  case EventCodes::L1CACHE_FILL_SAME_CXX:
+    return "L1CACHE_FILL_SAME_CXX";
+  case EventCodes::L1CACHE_FILL_ANOTHER_CXX:
+    return "L1CACHE_FILL_ANOTHER_CXX";
+  case EventCodes::L3_MISS:
+    return "L3_MISS";
   default:
     return "UNKNOWN";
   }

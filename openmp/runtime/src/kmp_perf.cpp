@@ -7,6 +7,7 @@
 
 #include <asm/unistd_64.h>
 #include <cstdint>
+#include <limits>
 #include <sched.h>
 #include <linux/perf_event.h>
 #include <unistd.h>
@@ -385,6 +386,91 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
                accumAMD.m_backendCPU
 #endif
                ));
+}
+
+void Perf::__kmp_summarize_taskloop_numa(kmp_team *team,
+                                         const kmp_real64 taskloop_start_time) {
+  uint32_t nthreads = team->t.t_nproc;
+
+  KA_TRACE(1, ("\n%s:%d: __kmp_summarize_taskloop_numa: Summarizing"
+               " stats for routine %p \n",
+               __FILE_NAME__, __LINE__, team->t.t_threads[0]->th.routine_id));
+
+  const auto numaNodeSize = 8;
+  for (auto i = 0U; i < nthreads / numaNodeSize; i++) {
+#ifdef AMD_PERF
+    AMDRawResults accumAMD;
+#endif
+    uint64_t accum[NUM_PERF_EVENTS] = {};
+    kmp_real64 min_time = std::numeric_limits<kmp_real64>::max();
+    kmp_real64 max_time = 0.0;
+    for (auto j = 0; j < 8 && (i * 8) + j < nthreads; ++j) {
+      kmp_info_t *thread = team->t.t_threads[(i * 8) + j];
+      min_time = std::min(thread->th.task_finish_time, min_time);
+      max_time = std::max(thread->th.task_finish_time, max_time);
+      log_and_sum_events(thread, accum);
+#ifdef AMD_PERF
+      accumAMD += thread->th.perf_container.summarizeCounters();
+#endif
+    }
+    auto threadPerNuma = nthreads / numaNodeSize;
+    if (threadPerNuma < 1) {
+      threadPerNuma = 1;
+    }
+
+#ifdef AMD_PERF
+    accumAMD = accumAMD.avg(threadPerNuma);
+#endif
+
+    KA_TRACE(1, ("%s:%d: __kmp_summarize_taskloop_numa: Taskloop team=%p: NUMA "
+                 "node=%d\nMin ExecT=%lf -- Max ExecT=%lf\n"
+                 "      - Tot cycles = %ld\n"
+                 "      - Tot ins = %ld\n"
+                 "      - Cache refs = %ld\n"
+                 "      - LLC misses = %ld\n"
+                 "      - Backend stalls = %ld\n"
+                 "      - Page faults = %ld\n"
+                 "  # Ratios:\n"
+                 "      - IPC = %lf\n"
+                 "      - Miss ratio = %lf\n"
+                 "      - Stalls ratio = %lf\n"
+#ifdef AMD_PERF
+                 "  # AMD raw ratios:\n"
+                 "      - TotDisp = %lu\n"
+                 "      - L1 Fills All = %lu\n"
+                 "      - L1 Fills Different NUMA = %lu\n"
+                 "      - L1 Fills same CXX = %lu\n"
+                 "      - L1 Fills another CXX = %lu\n"
+                 "      - L3 Misses = %lu\n"
+                 "      - Retiring fraction = %lf\n"
+                 "      - Backend bound = %lf\n"
+                 "      - Backend bound Memory = %lf\n"
+                 "      - Backend bound CPU = %lf\n"
+#endif
+                 ,
+                 __FILE_NAME__, __LINE__, team, i,
+                 min_time - taskloop_start_time, max_time - taskloop_start_time,
+                 accum[perf_id(PerfEvents::TOT_CYCLES)],
+                 accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)],
+                 accum[perf_id(PerfEvents::CACHE_REFS)],
+                 accum[perf_id(PerfEvents::LLC_MISSES)],
+                 accum[perf_id(PerfEvents::BACK_STALL)],
+                 accum[perf_id(PerfEvents::PAGE_FAULTS)],
+                 frac(accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)],
+                      accum[perf_id(PerfEvents::TOT_CYCLES)]),
+                 frac(accum[perf_id(PerfEvents::LLC_MISSES)],
+                      accum[perf_id(PerfEvents::CACHE_REFS)]),
+                 frac(accum[perf_id(PerfEvents::BACK_STALL)],
+                      accum[perf_id(PerfEvents::TOT_CYCLES)])
+#ifdef AMD_PERF
+                     ,
+                 accumAMD.m_totDisp, accumAMD.m_l1All, accumAMD.m_l1DiffNuma,
+                 accumAMD.m_l1SameCXX, accumAMD.m_l1AnotherCXX,
+                 accumAMD.m_l3Miss, accumAMD.m_retiring, accumAMD.m_backend,
+                 accumAMD.m_backendMem, accumAMD.m_backendCPU
+#endif
+                 ));
+  }
 }
 
 // This method calculates the perf metrics from

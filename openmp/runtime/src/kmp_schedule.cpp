@@ -140,7 +140,12 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   KMP_DEBUG_ASSERT(taskdata);
 
   kmp_team_t *team = thread->th.th_team;
-  int32_t nthreads = team->t.t_nproc;
+  auto nthreads = static_cast<uint32_t>(team->t.t_nproc);
+
+  if (nthreads == 1) {
+    taskdata->td_affin_mask = ALL_PROCS;
+    return;
+  }
 
   KA_TRACE(3, (" __kmp_set_task_affinity (enter): nproc:%d,"
                " lb:%lld, ub:%lld, glob_ub:%lld\n",
@@ -148,28 +153,30 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
 
   // Moldability: the number of threads used
   // are determined by the selected config.
-  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
-  routine_config config = routine_map.at(routine_id).getCurrentConfig();
-  nthreads = config.num_threads;
+  // KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
+  // routine_config config = routine_map.at(routine_id).getCurrentConfig();
+  // nthreads = config.num_threads;
 
   // TODO: use topology to decide this.
   // TODO: enable the use of "half" numa nodes, right
   //       now only whole numa nodes can be used.
   const auto nNumaNodes = numa_topology.get_num_numa();
-  const auto numaNodeSize = max(nthreads / nNumaNodes, 1);
+  const auto numaNodeSize = numa_topology.get_nthreads() / nNumaNodes;
 
   const auto midRange = (lb + ub) / 2;
-  const auto bucketSize = max(glob_ub / nNumaNodes, 1);
+  const auto bucketSize = max(glob_ub / nNumaNodes, numaNodeSize);
   auto numaId = midRange / bucketSize;
   numaId = min(numaId, nNumaNodes - 1); // Round down for last iterations
   const auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
 
   // Set the correct Numa node bits
   taskdata->td_affin_mask = 0b11111111ULL << discreteProc;
-  KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: Nnuma=%d, numaid=%d, Proc=%d "
+  KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: Nthreads=%d, Nnuma=%d, "
+               "numaid=%d, Proc=%d, "
+               "bucketSize=%lu "
                "MidIter#%d => Affin_mask=%lu.\n",
-               __FILE_NAME__, __LINE__, nNumaNodes, numaId, discreteProc,
-               midRange, taskdata->td_affin_mask));
+               __FILE_NAME__, __LINE__, nthreads, nNumaNodes, numaId,
+               discreteProc, bucketSize, midRange, taskdata->td_affin_mask));
 
   KMP_DEBUG_ASSERT(numaId < nNumaNodes);
   KMP_DEBUG_ASSERT(discreteProc < nthreads);
@@ -292,6 +299,8 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread,
 void Schedule::__kmp_start_routine_timer() {
   __kmp_read_system_time(&routine_timer);
 }
+
+kmp_real64 Schedule::__kmp_get_routine_timer() { return routine_timer; }
 
 ///////////////////////////////////////////////
 ///               Topology section          ///

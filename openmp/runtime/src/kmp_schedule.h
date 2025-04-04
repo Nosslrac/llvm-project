@@ -47,6 +47,7 @@ void __kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid, int place);
 void __kmp_store_routine_stats(kmp_int64 routine_id, routine_stats stats);
 routine_config __kmp_select_config(kmp_info *thread, kmp_uint64 num_tasks);
 void __kmp_start_routine_timer();
+kmp_real64 __kmp_get_routine_timer();
 
 // Topology part
 NumaTopology __kmp_read_topology();

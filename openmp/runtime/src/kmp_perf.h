@@ -27,6 +27,8 @@ void __kmp_stop_counters(kmp_info *thread, int32_t gtid, kmp_int32 task_id);
 void __kmp_disable_counters(kmp_info *thread);
 
 void __kmp_summarize_taskloop(kmp_team *team);
+void __kmp_summarize_taskloop_numa(kmp_team *team,
+                                   kmp_real64 taskloop_start_time);
 routine_stats __kmp_get_taskloop_stats(kmp_team *team);
 void __kmp_reset_taskloop_stats(kmp_team *team);
 
