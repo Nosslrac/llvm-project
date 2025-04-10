@@ -16,19 +16,26 @@ struct kmp_affinity_t;
 
 class NumaTopology {
 public:
-  explicit NumaTopology(uint32_t num_numa, uint32_t nthreads)
-      : m_num_numa(num_numa), m_nthreads(nthreads) {};
-  uint32_t get_num_numa() const { return m_num_numa; }
-  uint32_t get_nthreads() const { return m_nthreads; }
+  explicit NumaTopology(kmp_uint32 num_numa, kmp_uint32 num_cores,
+                        kmp_uint32 num_sockets, kmp_uint64 base_steal_bits)
+      : m_num_numa(num_numa), m_num_cores(num_cores),
+        m_num_sockets(num_sockets), m_base_steal_bits(base_steal_bits) {};
+  kmp_uint32 get_num_numa() const { return m_num_numa; }
+  kmp_uint32 get_num_cores() const { return m_num_cores; }
+  kmp_uint32 get_num_socket() const { return m_num_sockets; }
+  kmp_uint64 get_base_steal_bits() const { return m_base_steal_bits; }
 
 private:
-  uint32_t m_num_numa;
-  uint32_t m_nthreads;
+  kmp_uint32 m_num_numa;
+  kmp_uint32 m_num_cores;
+  kmp_uint32 m_num_sockets;
+  kmp_uint64 m_base_steal_bits;
 };
 
 namespace Schedule {
 
 // Scheduling decisions
+kmp_int32 __kmp_get_victim(kmp_int32 tid, kmp_int32 prev_victim_tid);
 kmp_int32 __kmp_get_optimal_grainsize(kmp_info *thread);
 kmp_thread_data *__kmp_optimal_thread(kmp_info *master_thread,
                                       kmp_task_team *task_team,

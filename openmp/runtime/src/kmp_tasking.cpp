@@ -3481,6 +3481,9 @@ static inline int __kmp_execute_tasks_template(
           if (victim_tid !=
               -1) // if we have a last stolen from victim, get the thread
             other_thread = threads_data[victim_tid].td.td_thr;
+        } else {
+          victim_tid = Schedule::__kmp_get_victim(tid, victim_tid);
+          other_thread = threads_data[victim_tid].td.td_thr;
         }
         if (victim_tid != -1) { // found last victim
           asleep = 0;
@@ -3526,13 +3529,12 @@ static inline int __kmp_execute_tasks_template(
           task =
               __kmp_steal_task(victim_tid, gtid, task_team, unfinished_threads,
                                thread_finished, is_constrained);
-          if (task != NULL) {
-            KA_TRACE(
-                3, ("%s:%d: __kmp_execute_tasks_template: T#%d stealing task "
-                    "from victim T#%d. task=%p\n",
-                    __FILE_NAME__, __LINE__, gtid,
-                    __kmp_gtid_from_thread(threads_data[victim_tid].td.td_thr),
-                    KMP_TASK_TO_TASKDATA(task)));
+          if (task != NULL && tid / 8 != victim_tid / 8) {
+            KA_TRACE(1,
+                     ("%s:%d: __kmp_execute_tasks_template: T#%d stealing task "
+                      "from victim T#%d. task=%p\n",
+                      __FILE_NAME__, __LINE__, tid, victim_tid,
+                      KMP_TASK_TO_TASKDATA(task)));
           }
         }
         if (task != NULL) { // set last stolen to victim

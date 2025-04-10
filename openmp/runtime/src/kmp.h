@@ -2777,7 +2777,8 @@ typedef struct kmp_target_data {
 struct kmp_taskdata { /* aligned during dynamic allocation       */
   kmp_int32 td_task_id; /* id, assigned by debugger                */
   kmp_tasking_flags_t td_flags; /* task flags                              */
-  uint64_t td_affin_mask; /* Mask for where the task can be placed */
+  kmp_uint64 td_affin_mask; /* Steal policy for task */
+  kmp_uint8 td_numa_place; /* Distribution place for task */
   kmp_team_t *td_team; /* team for this task                      */
   kmp_info_p *td_alloc_thread; /* thread that allocated data structures   */
   /* Currently not used except for perhaps IDB */

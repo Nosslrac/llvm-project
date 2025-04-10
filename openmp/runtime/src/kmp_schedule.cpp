@@ -79,23 +79,34 @@ void __kmp_alloc_task_deque(kmp_thread_data_t *thread_data, int32_t gtid) {
 }
 
 kmp_info_t *__kmp_select_thread(kmp_team *team, kmp_taskdata_t *taskdata,
-                                int32_t nthreads) {
+                                kmp_uint32 nthreads) {
   KMP_DEBUG_ASSERT(taskdata);
 
   // Divide the threads equally accross NUMA nodes
-  const auto nNumaNodes = nthreads / 8; // TODO: use topology to decide this
-  const auto node =
-      (bitScan(taskdata->td_affin_mask) / nNumaNodes) * nNumaNodes;
+  const auto numaSize =
+      numa_topology.get_num_cores() / numa_topology.get_num_numa();
+  const auto processor = taskdata->td_numa_place * numaSize;
+
   std::bitset<64> binaryRep(taskdata->td_affin_mask);
   KA_TRACE(3, ("%s:%d: __kmp_select_thread: Task#%p: "
                "Taskdata->td_affin_mask=%lu=0b%s scheduled on T#%d\n",
                __FILE_NAME__, __LINE__, taskdata, taskdata->td_affin_mask,
-               binaryRep.to_string().c_str(), node));
-  KMP_DEBUG_ASSERT(node < nthreads);
-  return team->t.t_threads[static_cast<int>(node)];
+               binaryRep.to_string().c_str(), processor));
+  KMP_DEBUG_ASSERT(processor < nthreads);
+  return team->t.t_threads[static_cast<int>(processor)];
 }
 
 } // namespace
+
+kmp_int32 Schedule::__kmp_get_victim(kmp_int32 tid, kmp_int32 prev_victim_tid) {
+  const auto nNumaNodes = numa_topology.get_num_numa();
+  const auto numaSize = numa_topology.get_num_cores() / nNumaNodes;
+
+  if (tid / nNumaNodes == prev_victim_tid / nNumaNodes) {
+    return prev_victim_tid;
+  }
+  return static_cast<kmp_int32>((tid / nNumaNodes) * numaSize);
+}
 
 kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
                                                   kmp_task_team *task_team,
@@ -103,7 +114,7 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
 
   KMP_DEBUG_ASSERT(taskdata);
 
-  int32_t nthreads = task_team->tt.tt_nproc;
+  const auto nthreads = task_team->tt.tt_nproc;
   kmp_team *team = master_thread->th.th_team;
   kmp_info_t *base_numa = __kmp_select_thread(
       team, taskdata, nthreads); // Get primary thread from NUMA node
@@ -142,7 +153,8 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   kmp_team_t *team = thread->th.th_team;
   auto nthreads = static_cast<uint32_t>(team->t.t_nproc);
 
-  if (nthreads == 1) {
+  if (nthreads == 1) { // When single task is executed
+    taskdata->td_numa_place = 0;
     taskdata->td_affin_mask = ALL_PROCS;
     return;
   }
@@ -150,27 +162,32 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   KA_TRACE(3, (" __kmp_set_task_affinity (enter): nproc:%d,"
                " lb:%lld, ub:%lld, glob_ub:%lld\n",
                thread->th.th_team_nproc, lb, ub, glob_ub));
+  // TODO: Use moldability / config to select stealing and distribution
+  /* if (has_config(routine_id)) {
+    Do moldability
+    config = Routine::get_config(routine_id, lb, ub, glob_ub);
+    taskdata->td_numa_place = config.place;
+    taskdata->td_affin_mask = config.steal;
+    return;
+  }*/
 
-  // Moldability: the number of threads used
-  // are determined by the selected config.
-  // KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
-  // routine_config config = routine_map.at(routine_id).getCurrentConfig();
-  // nthreads = config.num_threads;
-
-  // TODO: use topology to decide this.
-  // TODO: enable the use of "half" numa nodes, right
-  //       now only whole numa nodes can be used.
+  // Fallback based on topology
   const auto nNumaNodes = numa_topology.get_num_numa();
-  const auto numaNodeSize = numa_topology.get_nthreads() / nNumaNodes;
+  const auto numaNodeSize = numa_topology.get_num_cores() / nNumaNodes;
 
   const auto midRange = (lb + ub) / 2;
   const auto bucketSize = max(glob_ub / nNumaNodes, numaNodeSize);
-  auto numaId = midRange / bucketSize;
-  numaId = min(numaId, nNumaNodes - 1); // Round down for last iterations
+  // Get numa node id, cannot be larger than the last one
+  const auto numaId =
+      static_cast<kmp_uint8>(min(midRange / bucketSize, numaNodeSize - 1));
   const auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
 
   // Set the correct Numa node bits
-  taskdata->td_affin_mask = 0b11111111ULL << discreteProc;
+  // taskdata->td_affin_mask = numa_topology.get_base_steal_bits() <<
+  // discreteProc;
+  taskdata->td_affin_mask = ALL_PROCS;
+  taskdata->td_numa_place = numaId;
+
   KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: Nthreads=%d, Nnuma=%d, "
                "numaid=%d, Proc=%d, "
                "bucketSize=%lu "
@@ -311,22 +328,27 @@ NumaTopology Schedule::__kmp_read_topology() {
   // Load topology
   if (hwloc_topology_init(&topology) == -1) {
     KMP_FATAL(MsgExiting, "Hardware topology not read");
-    return NumaTopology(0, 0);
+    return NumaTopology(0, 0, 0, 0);
   }
   if (hwloc_topology_load(topology) == -1) {
     KMP_FATAL(MsgExiting, "Hardware topology not read");
-    return NumaTopology(0, 0);
+    return NumaTopology(0, 0, 0, 0);
   }
 
   // Get relevant intro
   const auto nNumaNodes =
-      max(1, hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE));
-  const auto nthreads =
-      max(1, hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_CORE));
+      hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
+  const auto ncores = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_CORE);
+  const auto nsockets = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PACKAGE);
+  const auto base_steal_bits = (1ULL << nNumaNodes) - 1;
 
-  KA_TRACE(2, ("__kmp_read_topology: Number of NUMA nodes detected to %d, "
-               "total cores = %d\n",
-               nNumaNodes, nthreads));
-  return NumaTopology(static_cast<uint32_t>(nNumaNodes),
-                      static_cast<uint32_t>(nthreads));
+  KA_TRACE(1, ("__kmp_read_topology: Number of NUMA nodes detected to %u, "
+               "total cores = %u, sockets = %u, base_steal_bits = %lu\n",
+               nNumaNodes, ncores, nsockets, base_steal_bits));
+
+  // Todo: generate stealmasks based on policy
+
+  return NumaTopology(static_cast<kmp_uint32>(nNumaNodes),
+                      static_cast<kmp_uint32>(ncores),
+                      static_cast<kmp_uint32>(nsockets), base_steal_bits);
 }
