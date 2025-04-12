@@ -59,7 +59,8 @@ void __kmp_show_affinity(kmp_info *thread);
 void __kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid, int place);
 
 // Routine part
-void __kmp_store_routine_stats(kmp_int64 routine_id, routine_stats stats);
+void __kmp_store_routine_stats(kmp_int64 routine_id,
+                               routine_stats_nodes *stats);
 routine_config __kmp_select_config(kmp_info *thread, kmp_uint64 num_tasks);
 void __kmp_start_routine_timer();
 kmp_real64 __kmp_get_routine_timer();

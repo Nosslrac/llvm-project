@@ -301,22 +301,16 @@ void Schedule::__kmp_set_numa_affinity(kmp_affinity_t *global_affin,
 }
 
 void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id,
-                                         routine_stats stats) {
-
-  kmp_real64 end_time;
-  __kmp_read_system_time(&end_time);
-  kmp_real64 tot_exec_time = end_time - routine_timer;
-  stats.execution_time = tot_exec_time;
+                                         routine_stats_nodes *stats) {
 
   // Verify that the routine exists in the map
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
 
-  KA_TRACE(2, ("__kmp_store_routine_stats: New stat store for routine %p:"
-               " tot_exec_time:%f, stall_ratio:%f\n",
-               routine_id, stats.execution_time, stats.stall_ratio));
+  KA_TRACE(2, ("__kmp_store_routine_stats: New stat store for routine %p\n",
+               routine_id));
 
   // Store the execution stats
-  routine_map.at(routine_id).storeExecution(stats);
+  routine_map.at(routine_id).storeExecution(*stats);
 }
 
 routine_config Schedule::__kmp_select_config(kmp_info *thread,
