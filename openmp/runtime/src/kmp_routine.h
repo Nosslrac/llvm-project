@@ -61,7 +61,7 @@ private:
   kmp_real64 calcFastestNUMAExec(routine_config);
   kmp_real64 calcAverageNUMAExec(routine_config);
   kmp_uint16 getNUMAMask(kmp_uint64);
-  StealPolicy checkLoadBalance();
+  StealPolicy checkLoadBalance(routine_config);
 
 public:
   Routine(kmp_int64);

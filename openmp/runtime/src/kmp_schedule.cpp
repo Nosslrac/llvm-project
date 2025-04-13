@@ -162,26 +162,50 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
     return;
   }*/
 
-  // Fallback based on topology
+  // Info based on topology
   const auto nNumaNodes = numa_topology.get_num_numa();
   const auto numaNodeSize = numa_topology.get_num_cores() / nNumaNodes;
-
   const auto midRange = (lb + ub) / 2;
-  const auto bucketSize = max(glob_ub / nNumaNodes, numaNodeSize);
+  auto bucketSize = max(glob_ub / nNumaNodes, numaNodeSize);
   // Get numa node id, cannot be larger than the last one
-  const auto numaId =
-      static_cast<kmp_uint8>(min(midRange / bucketSize, nNumaNodes - 1));
-  const auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
+  auto numaId =
+      static_cast<kmp_uint8>(min(midRange / bucketSize, numaNodeSize - 1));
+  auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
 
   taskdata->td_affin_mask = static_cast<kmp_uint16>(1U << numaId);
   taskdata->td_numa_place = numaId;
 
-  KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: Nthreads=%d, Nnuma=%d, "
-               "numaid=%d, Proc=%d, "
-               "bucketSize=%lu "
-               "MidIter#%d => Affin_mask=%u.\n",
-               __FILE_NAME__, __LINE__, nthreads, nNumaNodes, numaId,
-               discreteProc, bucketSize, midRange, taskdata->td_affin_mask));
+// Moldability
+#ifdef MOLDABILITY
+  routine_config config = routine_map.at(routine_id).getCurrentConfig();
+  int numNodes = bitCount(config.node_mask);
+  int firstNode = bitScan(config.node_mask);
+
+  bucketSize = max((glob_ub / numNodes) + 1, numaNodeSize);
+
+  numaId = static_cast<kmp_uint8>(
+      min((midRange / bucketSize) + firstNode, numaNodeSize - 1));
+
+  if (config.task_affinity == StealPolicy::NUMA) {
+    const auto node_bits = (1ULL << numaNodeSize) - 1;
+    taskdata->td_affin_mask = node_bits << (numaId * numaNodeSize);
+  }
+
+  if (config.task_affinity == StealPolicy::FULL) {
+    const auto node_bits = (1ULL << numaNodeSize * numNodes) - 1;
+    taskdata->td_affin_mask = node_bits << (firstNode * numaNodeSize);
+  }
+  taskdata->td_numa_place = numaId;
+#endif
+
+  KA_TRACE(
+      3,
+      ("%s:%d: __kmp_set_task_affinity: for routine %p: Nthreads=%d, Nnuma=%d, "
+       "numaid=%d, Proc=%d, "
+       "bucketSize=%lu "
+       "MidIter#%d => Affin_mask=%lu.\n",
+       __FILE_NAME__, __LINE__, routine_id, nthreads, nNumaNodes, numaId,
+       discreteProc, bucketSize, midRange, taskdata->td_affin_mask));
 
   KMP_DEBUG_ASSERT(numaId < nNumaNodes);
   KMP_DEBUG_ASSERT(discreteProc < nthreads);
@@ -306,7 +330,7 @@ void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id,
   // Verify that the routine exists in the map
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
 
-  KA_TRACE(2, ("__kmp_store_routine_stats: New stat store for routine %p\n",
+  KA_TRACE(3, ("__kmp_store_routine_stats: New stat store for routine %p\n",
                routine_id));
 
   // Store the execution stats
@@ -325,11 +349,7 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread,
     ret_config = routine_map.at(routine_id).getDefaultConfig(thread, num_tasks);
 
   } else {
-#ifdef MOLDABILITY
     ret_config = routine_map.at(routine_id).getNextConfig();
-#else
-    ret_config = routine_map.at(routine_id).getDefaultConfig(thread, num_tasks);
-#endif
   }
 
   KA_TRACE(

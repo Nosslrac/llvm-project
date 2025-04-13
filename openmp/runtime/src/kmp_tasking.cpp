@@ -5210,7 +5210,7 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
 
-  KA_TRACE(2,
+  KA_TRACE(3,
            ("__kmp_taskloop_recur: Start taskloop_recur %d\n", lower_offset));
 
   // split the loop in two halves
@@ -5506,7 +5506,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     __kmpc_end_taskgroup(loc, gtid);
   }
 
-  KA_TRACE(2, ("__kmp_taskloop(exit): T#%d\n", gtid));
+  KA_TRACE(3, ("__kmp_taskloop(exit): T#%d\n", gtid));
 }
 
 /*!

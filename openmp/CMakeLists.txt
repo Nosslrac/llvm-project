@@ -24,6 +24,7 @@ set(LIBOMP_HWLOC_INSTALL_DIR /apps/Arch/software/hwloc/2.10.0-GCCcore-13.3.0/)
 add_definitions(-DPERF_COUNTERS)
 add_definitions(-DAMD_PERF)
 add_definitions(-DMOLDABILITY)
+add_definitions(-DLOADBALANCE)
 # ME2
 
 # Must go below project(..)

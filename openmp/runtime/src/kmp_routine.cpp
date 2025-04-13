@@ -16,10 +16,13 @@ kmp_int64 getMin(kmp_int64 a, kmp_int64 b) { return a < b ? a : b; }
 
 kmp_uint16 calcMask(kmp_uint8 offset, kmp_uint8 num) {
 
-  kmp_uint16 mask = (1UL << num);
+  kmp_uint64 mask = (1ULL << num);
   mask = mask - 1U;
-  mask = mask << offset;
-
+  if (offset + num <= NUM_NUMANODES) {
+    mask = mask << offset;
+  } else {
+    mask = mask << (NUM_NUMANODES - num);
+  }
   return mask;
 }
 
@@ -75,6 +78,13 @@ routine_config Routine::getDefaultConfig(kmp_info *thread,
 routine_config Routine::getNextConfig() {
   routine_config next_config = current_config;
 
+#ifndef MOLDABILITY
+#ifdef LOADBALANCE
+  next_config.task_affinity = checkLoadBalance(next_config);
+#endif
+  return next_config;
+#endif
+
   // If minima found, return the fastest config
   if (minima_found) {
     // Do nothing, just keep executing the current config
@@ -92,7 +102,7 @@ routine_config Routine::getNextConfig() {
     if (calcSlowestNUMAExec(current_config) < TINY_TASKLOOP_THRESHOLD) {
 
       next_config.num_threads = MOLDABILITY_GRANULARITY;
-      KA_TRACE(1, ("Routine::getNextConfig(): Very short taskloop!!"
+      KA_TRACE(2, ("Routine::getNextConfig(): Very short taskloop!!"
                    " Only use 1 NUMA node (%d threads) for routine %p .\n",
                    next_config.num_threads, routine_id));
       minima_found = true;
@@ -101,7 +111,7 @@ routine_config Routine::getNextConfig() {
 
       next_config.num_threads = current_config.num_threads / 2;
       KA_TRACE(
-          1,
+          3,
           ("Routine::getNextConfig(): Only one previous config."
            " Try half the number of threads (%d threads/2) for routine %p .\n",
            current_config.num_threads, routine_id));
@@ -142,7 +152,7 @@ routine_config Routine::getNextConfig() {
     KMP_DEBUG_ASSERT(fastest_time < DBL_MAX);
     KMP_DEBUG_ASSERT(second_fastest_time < DBL_MAX);
 
-    KA_TRACE(2, ("\nRoutine::getNextConfig():"
+    KA_TRACE(3, ("\nRoutine::getNextConfig():"
                  " Comparing old configs for routine %p. \n"
                  "Fastest config={%d, %d, %d} execT=%f, "
                  " Second fastest={%d, %d, %d} execT=%f.\n",
@@ -174,11 +184,13 @@ routine_config Routine::getNextConfig() {
       minima_found = true;
       next_config = fastest;
 
-      KA_TRACE(2, ("Routine::getNextConfig(): Minima found!"
+      KA_TRACE(3, ("Routine::getNextConfig(): Minima found!"
                    " Fastest config selected.\n"))
 
-      // Check if load balancing is required.
-      next_config.task_affinity = checkLoadBalance();
+// Check if load balancing is required.
+#ifdef LOADBALANCE
+      next_config.task_affinity = checkLoadBalance(next_config);
+#endif
     }
 
     // Select the config inbetween the fastest and
@@ -187,7 +199,7 @@ routine_config Routine::getNextConfig() {
 
       next_config.num_threads = next_num_threads;
 
-      KA_TRACE(2, ("Routine::getNextConfig(): Selecting new config"
+      KA_TRACE(3, ("Routine::getNextConfig(): Selecting new config"
                    " based on thread diff: %d, new number of threads: %d "
                    "(min:%d + diff/2:%d).\n",
                    diff_threads, next_config.num_threads,
@@ -218,6 +230,18 @@ routine_config Routine::getNextConfig() {
 // NOTE: The method relies on the fact that the config used
 // for the execution is stored in the current_config variable
 void Routine::storeExecution(routine_stats_nodes stats) {
+  kmp_uint16 mask = current_config.node_mask;
+
+  // Make sure only active NUMA nodes have reported stats, remove all other
+  // stats.
+  for (int i = 0; i < NUM_NUMANODES; i++) {
+    if (!((mask >> i) & 1U) && (stats[i].execution_time != 0)) {
+      stats[i] = {0, 0};
+      KA_TRACE(1, ("Routine::storeExecution(): Stats removed for node[%d] "
+                   "(routine %p)\n",
+                   i, routine_id));
+    }
+  }
 
   // If config doesnt exists, just add the config and stats
   if (execution_history.find(current_config) == execution_history.end()) {
@@ -276,7 +300,7 @@ kmp_real64 Routine::calcSlowestNUMAExec(routine_config config) {
 
   kmp_real64 slowest = 0;
 
-  for (int i = 0; i < NUM_NUMANODES - 1; i++) {
+  for (int i = 0; i < NUM_NUMANODES; i++) {
 
     kmp_real64 exec_time = execution_history.at(config)[i].execution_time;
 
@@ -296,7 +320,7 @@ kmp_real64 Routine::calcFastestNUMAExec(routine_config config) {
 
   kmp_real64 fastest = DBL_MAX;
 
-  for (int i = 0; i < NUM_NUMANODES - 1; i++) {
+  for (int i = 0; i < NUM_NUMANODES; i++) {
 
     kmp_real64 exec_time = execution_history.at(config)[i].execution_time;
 
@@ -317,7 +341,7 @@ kmp_real64 Routine::calcAverageNUMAExec(routine_config config) {
   kmp_real64 avrg_time = 0.0;
   int nodes = config.num_threads / NUMANODE_SIZE;
 
-  for (int i = 0; i < NUM_NUMANODES - 1; i++) {
+  for (int i = 0; i < NUM_NUMANODES; i++) {
 
     avrg_time += execution_history.at(config)[i].execution_time;
   }
@@ -354,24 +378,21 @@ kmp_uint16 Routine::getNUMAMask(kmp_uint64 num_nodes) {
   kmp_uint8 node_offset = (fastest_node / SOCKET_SIZE) * SOCKET_SIZE;
   mask = calcMask(node_offset, num_nodes);
 
-  KA_TRACE(2, ("Routine::GetNUMAMask(): Mask selected: %d.\n", mask));
-
-  kmp_uint16 max_val = (2 ^ (1ULL << NUM_NUMANODES)) - 1;
+  kmp_uint16 max_val = (1ULL << NUM_NUMANODES) - 1;
   KMP_DEBUG_ASSERT(mask <= max_val);
 
   return mask;
 }
 
-StealPolicy Routine::checkLoadBalance() {
+StealPolicy Routine::checkLoadBalance(routine_config config) {
   StealPolicy policy = StealPolicy::NUMA;
 
   kmp_real64 slowest = 0.0;
   kmp_real64 fastest = DBL_MAX;
 
-  for (int i = 0; i < NUM_NUMANODES - 1; i++) {
+  for (int i = 0; i < NUM_NUMANODES; i++) {
 
-    kmp_real64 exec_time =
-        execution_history.at(current_config)[i].execution_time;
+    kmp_real64 exec_time = execution_history.at(config)[i].execution_time;
 
     // Find slowest
     if (exec_time > slowest) {
@@ -388,7 +409,10 @@ StealPolicy Routine::checkLoadBalance() {
   if (diff >= LOAD_BALANCE_REQUIRED_FACTOR)
     policy = StealPolicy::FULL;
 
-  KA_TRACE(2, ("Routine::checkLoadbalance(): Policy selected: %d.\n", policy))
+  KA_TRACE(2, ("Routine::checkLoadbalance(): Policy %d selected for routine "
+               "%p. Fastest:%f, "
+               "Slowest:%f, diff:%f\n",
+               policy, routine_id, fastest, slowest, diff))
 
   return policy;
 }
