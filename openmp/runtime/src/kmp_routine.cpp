@@ -29,7 +29,7 @@ kmp_uint16 calcMask(kmp_uint8 offset, kmp_uint8 num) {
 void printStatsArray(std::array<routine_stats, NUM_NUMANODES> arr) {
 
   for (int i = 0; i < NUM_NUMANODES; i++) {
-    KA_TRACE(2, ("Node[%d] ExecT:%f \n", i, arr[i].execution_time));
+    KA_TRACE(1, ("Node[%d] ExecT:%f \n", i, arr[i].execution_time));
   }
 }
 
@@ -247,7 +247,7 @@ void Routine::storeExecution(routine_stats_nodes stats) {
   if (execution_history.find(current_config) == execution_history.end()) {
     execution_history.emplace(current_config, stats);
 
-    KA_TRACE(2,
+    KA_TRACE(1,
              ("Routine:storeExecution: routine %p inserted new config={%d, "
               "%d, %d}\n",
               routine_id, current_config.num_threads, current_config.num_tasks,
@@ -257,7 +257,7 @@ void Routine::storeExecution(routine_stats_nodes stats) {
     return;
   }
 
-  KA_TRACE(2, ("Routine:storeExecution: routine %p has new stats for "
+  KA_TRACE(1, ("Routine:storeExecution: routine %p has new stats for "
                "config={%d, %d, %d}.\n",
                routine_id, current_config.num_threads, current_config.num_tasks,
                static_cast<int>(current_config.task_affinity)));

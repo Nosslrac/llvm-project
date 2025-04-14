@@ -4979,7 +4979,7 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
                              (last_chunk < 0 ? last_chunk : extras));
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
-  KA_TRACE(5, ("__kmp_taskloop_linear: T#%d: %lld tasks, grainsize %lld, "
+  KA_TRACE(1, ("__kmp_taskloop_linear: T#%d: %lld tasks, grainsize %lld, "
                "extras %lld, last_chunk %lld, i=%lld,%lld(%d)%lld, dup %p\n",
                gtid, num_tasks, grainsize, extras, last_chunk, lower, upper,
                ub_glob, st, task_dup));

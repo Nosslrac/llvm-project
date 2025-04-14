@@ -402,7 +402,7 @@ void Perf::__kmp_summarize_taskloop_numa(kmp_team *team,
   uint32_t nthreads = std::min(static_cast<kmp_uint32>(team->t.t_nproc),
                                Schedule::numa_topology.get_num_cores());
 
-  KA_TRACE(1, ("\n%s:%d: __kmp_summarize_taskloop_numa: Summarizing"
+  KA_TRACE(3, ("\n%s:%d: __kmp_summarize_taskloop_numa: Summarizing"
                " stats for routine %p \n",
                __FILE_NAME__, __LINE__, team->t.t_threads[0]->th.routine_id));
 
@@ -434,7 +434,7 @@ void Perf::__kmp_summarize_taskloop_numa(kmp_team *team,
     accumAMD = accumAMD.avg(threadPerNuma);
 #endif
 
-    KA_TRACE(1, ("%s:%d: __kmp_summarize_taskloop_numa: Taskloop team=%p: NUMA "
+    KA_TRACE(3, ("%s:%d: __kmp_summarize_taskloop_numa: Taskloop team=%p: NUMA "
                  "node=%d\nMin ExecT=%lf -- Max ExecT=%lf\n"
                  "      - Tot cycles = %ld\n"
                  "      - Tot ins = %ld\n"
