@@ -2777,7 +2777,7 @@ typedef struct kmp_target_data {
 struct kmp_taskdata { /* aligned during dynamic allocation       */
   kmp_int32 td_task_id; /* id, assigned by debugger                */
   kmp_tasking_flags_t td_flags; /* task flags                              */
-  kmp_uint64 td_affin_mask; /* Steal policy for task */
+  kmp_uint16 td_affin_mask; /* Steal policy for task 1 bit per NUMA node */
   kmp_uint8 td_numa_place; /* Distribution place for task */
   kmp_team_t *td_team; /* team for this task                      */
   kmp_info_p *td_alloc_thread; /* thread that allocated data structures   */
@@ -3078,7 +3078,8 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   kmp_int64 routine_id;
 
   // Schedule parameters
-  kmp_int8 next_thread;
+  kmp_int16 steal_mask;
+  kmp_uint32 numa_head_start; // First task index for current taskloop
 
 #if KMP_AFFINITY_SUPPORTED
   kmp_int8 force_affin;

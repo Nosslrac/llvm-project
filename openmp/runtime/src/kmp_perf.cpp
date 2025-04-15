@@ -127,6 +127,10 @@ template <PerfEvents ev> void enable_perf_event(kmp_info_t *thread) {
 
   int32_t fd = thread->th.perf_stats[perf_id(ev)];
 
+  if (fd < 3) {
+    return;
+  }
+
   KMP_DEBUG_ASSERT(fd > 2);
 
   ioctl(fd, PERF_EVENT_IOC_RESET);
@@ -151,6 +155,10 @@ template <PerfEvents ev>
 uint64_t stop_perf_event(kmp_info_t *thread, int32_t cpu_id) {
   // Stop event and read
   const int fd = thread->th.perf_stats[perf_id(ev)];
+
+  if (fd < 3) {
+    return 0;
+  }
 
   KMP_DEBUG_ASSERT(fd > 2);
 

@@ -6171,7 +6171,9 @@ void __kmp_internal_end_atexit(void) {
 
   // Close all file descriptors for perf events for this thread
   // This is only executed by the master thread
-  Perf::__kmp_disable_counters(__kmp_thread_from_gtid(gtid));
+  if (gtid >= 0) {
+    Perf::__kmp_disable_counters(__kmp_thread_from_gtid(gtid));
+  }
 #endif
 
   /* [Windows]
