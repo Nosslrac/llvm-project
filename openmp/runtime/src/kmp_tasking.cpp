@@ -22,6 +22,7 @@
 #include "kmp_perf.h"
 #include "kmp_routine.h"
 #include <sched.h>
+#include <bitset>
 
 #ifdef PERF_COUNTERS
 #include "kmp_perf.h"
@@ -594,6 +595,7 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
       }
     }
   }
+  // TODO_ME: This does not hold for our distribution policy
   // Must have room since no thread can add tasks but calling thread
   KMP_DEBUG_ASSERT(TCR_4(thread_data->td.td_deque_ntasks) <
                    TASK_DEQUE_SIZE(thread_data->td));
@@ -3328,11 +3330,11 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
   KMP_DEBUG_ASSERT(taskdata);
   current = __kmp_threads[gtid]->th.th_current_task;
   taskdata = victim_td->td.td_deque[victim_td->td.td_deque_head];
-  const auto tidBit = 1ULL << __kmp_tid_from_gtid(gtid);
-  if ((tidBit & taskdata->td_affin_mask) == 0) {
+
+  if ((__kmp_threads[gtid]->th.steal_mask & taskdata->td_affin_mask) == 0) {
     __kmp_release_bootstrap_lock(&victim_td->td.td_deque_lock);
     KA_TRACE(5, ("__kmp_steal_task: T#%d(tid=%d): steal not allowed from "
-                 "T#%d(tid=%d): That thread is not part of our NUMA node\n",
+                 "T#%d(tid=%d): Task is not marked for load balancing\n",
                  gtid, __kmp_tid_from_gtid(gtid),
                  __kmp_gtid_from_thread(victim_thr),
                  __kmp_tid_from_gtid(__kmp_gtid_from_thread(victim_thr))));
@@ -3481,9 +3483,6 @@ static inline int __kmp_execute_tasks_template(
           if (victim_tid !=
               -1) // if we have a last stolen from victim, get the thread
             other_thread = threads_data[victim_tid].td.td_thr;
-        } else {
-          victim_tid = Schedule::__kmp_get_victim(tid, victim_tid);
-          other_thread = threads_data[victim_tid].td.td_thr;
         }
         if (victim_tid != -1) { // found last victim
           asleep = 0;
@@ -3494,6 +3493,7 @@ static inline int __kmp_execute_tasks_template(
             // threads, and only return if we tried to steal from every thread,
             // and failed.  Arch says that's not such a great idea.
             victim_tid = __kmp_get_random(thread) % (nthreads - 1);
+            victim_tid = Schedule::__kmp_get_numa_base(victim_tid);
             if (victim_tid >= tid) {
               ++victim_tid; // Adjusts random distribution to exclude self
             }
@@ -3529,12 +3529,14 @@ static inline int __kmp_execute_tasks_template(
           task =
               __kmp_steal_task(victim_tid, gtid, task_team, unfinished_threads,
                                thread_finished, is_constrained);
-          if (task != NULL && tid / 8 != victim_tid / 8) {
-            KA_TRACE(1,
+          if (task != NULL) {
+            KA_TRACE(2,
                      ("%s:%d: __kmp_execute_tasks_template: T#%d stealing task "
-                      "from victim T#%d. task=%p\n",
+                      "from victim T#%d. Td_affin_mask=%s\n",
                       __FILE_NAME__, __LINE__, tid, victim_tid,
-                      KMP_TASK_TO_TASKDATA(task)));
+                      std::bitset<16>(KMP_TASK_TO_TASKDATA(task)->td_affin_mask)
+                          .to_string()
+                          .c_str()));
           }
         }
         if (task != NULL) { // set last stolen to victim
@@ -3770,6 +3772,7 @@ static void __kmp_enable_tasking(kmp_task_team_t *task_team,
     for (i = 0; i < nthreads; i++) {
       void *sleep_loc;
       kmp_info_t *thread = threads_data[i].td.td_thr;
+      Schedule::__kmp_set_start_head(task_team, thread, i);
 
       if (i == this_thr->th.th_info.ds.ds_tid) {
         continue;
@@ -5395,6 +5398,11 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     // (Selects default config if no history is available)
     thread->th.routine_id = (kmp_int64)task->routine;
     next_config = Schedule::__kmp_select_config(thread, grainsize);
+    if (KMP_TASKING_ENABLED(thread->th.th_task_team)) {
+      // If tasking isn't enabled the numa head will be initialized in
+      // __kmp_enable_tasking
+      Schedule::__kmp_reset_head_all(thread->th.th_task_team);
+    }
     grainsize = next_config.num_tasks;
 
     KMP_FALLTHROUGH();
@@ -5436,6 +5444,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
 
+  // TODO_ME: REMOVE
   Schedule::__kmp_show_affinity(thread);
   thread->th.th_team->t.t_proc_bind = proc_bind_true;
 

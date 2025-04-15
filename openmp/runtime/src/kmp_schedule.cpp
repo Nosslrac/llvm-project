@@ -8,11 +8,13 @@
 #include "kmp_routine.h"
 
 #include <immintrin.h>
-#include <bitset>
 
 namespace {
 
-constexpr uint64_t ALL_PROCS = ~0ULL;
+constexpr kmp_uint16 ALL_PROCS = static_cast<kmp_uint16>(~0U);
+constexpr kmp_uint16 LOAD_BALANCE_BIT = (1U << 15);
+constexpr kmp_uint16 NO_LOAD_BALANCE = 0;
+constexpr kmp_uint32 LOAD_STRICT = 3;
 
 inline int bitCount(kmp_uint64 mask) {
 #if __has_builtin(__builtin_popcountll)
@@ -52,9 +54,6 @@ kmp_real64 routine_timer;
 
 // Routine stuff end
 
-// Topology info
-const NumaTopology numa_topology = Schedule::__kmp_read_topology();
-
 void __kmp_alloc_task_deque(kmp_thread_data_t *thread_data, int32_t gtid) {
 
   __kmp_init_bootstrap_lock(&thread_data->td.td_deque_lock);
@@ -78,34 +77,25 @@ void __kmp_alloc_task_deque(kmp_thread_data_t *thread_data, int32_t gtid) {
   thread_data->td.td_deque_size = INITIAL_TASK_DEQUE_SIZE;
 }
 
-kmp_info_t *__kmp_select_thread(kmp_team *team, kmp_taskdata_t *taskdata,
-                                kmp_uint32 nthreads) {
+kmp_int32 __kmp_get_distribution_tid(kmp_taskdata_t *taskdata,
+                                     kmp_uint32 nthreads) {
   KMP_DEBUG_ASSERT(taskdata);
 
   // Divide the threads equally accross NUMA nodes
-  const auto numaSize =
-      numa_topology.get_num_cores() / numa_topology.get_num_numa();
+  const auto numaSize = Schedule::numa_topology.get_num_cores() /
+                        Schedule::numa_topology.get_num_numa();
   const auto processor = taskdata->td_numa_place * numaSize;
 
-  std::bitset<64> binaryRep(taskdata->td_affin_mask);
-  KA_TRACE(3, ("%s:%d: __kmp_select_thread: Task#%p: "
-               "Taskdata->td_affin_mask=%lu=0b%s scheduled on T#%d\n",
-               __FILE_NAME__, __LINE__, taskdata, taskdata->td_affin_mask,
-               binaryRep.to_string().c_str(), processor));
   KMP_DEBUG_ASSERT(processor < nthreads);
-  return team->t.t_threads[static_cast<int>(processor)];
+  return static_cast<kmp_int32>(processor);
 }
 
 } // namespace
 
-kmp_int32 Schedule::__kmp_get_victim(kmp_int32 tid, kmp_int32 prev_victim_tid) {
-  const auto nNumaNodes = numa_topology.get_num_numa();
-  const auto numaSize = numa_topology.get_num_cores() / nNumaNodes;
-
-  if (tid / nNumaNodes == prev_victim_tid / nNumaNodes) {
-    return prev_victim_tid;
-  }
-  return static_cast<kmp_int32>((tid / nNumaNodes) * numaSize);
+kmp_int32 Schedule::__kmp_get_numa_base(kmp_int32 victim_tid) {
+  static const auto nNumaNodes = numa_topology.get_num_numa();
+  static const auto numaSize = numa_topology.get_num_cores() / nNumaNodes;
+  return static_cast<kmp_int32>((victim_tid / numaSize) * numaSize);
 }
 
 kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
@@ -115,23 +105,24 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
   KMP_DEBUG_ASSERT(taskdata);
 
   const auto nthreads = task_team->tt.tt_nproc;
-  kmp_team *team = master_thread->th.th_team;
-  kmp_info_t *base_numa = __kmp_select_thread(
-      team, taskdata, nthreads); // Get primary thread from NUMA node
-
-  const auto new_gtid = __kmp_gtid_from_thread(base_numa);
-  const auto tid = __kmp_tid_from_gtid(new_gtid);
-  kmp_thread_data_t *thread_data = &task_team->tt.tt_threads_data[tid];
-
-  if (UNLIKELY(thread_data->td.td_deque == NULL)) {
-    __kmp_alloc_task_deque(thread_data, new_gtid);
+  if (nthreads == 1) {
+    // Tasks in omp master should be placed on the calling threads deque
+    const auto new_gtid = __kmp_gtid_from_thread(master_thread);
+    const auto tid = __kmp_tid_from_gtid(new_gtid);
+    return &task_team->tt.tt_threads_data[tid];
   }
 
-  KA_TRACE(
-      3, ("%s:%d: __kmp_optimal_thread: Base NUMA thread based on affinity T#%d"
-          "(tid=%d).\n ",
-          __FILE_NAME__, __LINE__, new_gtid, tid));
+  kmp_int32 base_numa_tid = __kmp_get_distribution_tid(
+      taskdata, nthreads); // Get primary thread from NUMA node
 
+  kmp_thread_data_t *thread_data =
+      &task_team->tt.tt_threads_data[base_numa_tid];
+  kmp_info_t *base_numa_thread = thread_data->td.td_thr;
+  taskdata->td_affin_mask |=
+      Schedule::__kmp_get_load_balance_mask(base_numa_thread, thread_data);
+
+  KA_TRACE(3, ("%s:%d: __kmp_optimal_thread: Base NUMA thread tid=%d\n ",
+               __FILE_NAME__, __LINE__, base_numa_tid));
   return thread_data;
 }
 
@@ -179,24 +170,59 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   const auto bucketSize = max(glob_ub / nNumaNodes, numaNodeSize);
   // Get numa node id, cannot be larger than the last one
   const auto numaId =
-      static_cast<kmp_uint8>(min(midRange / bucketSize, numaNodeSize - 1));
+      static_cast<kmp_uint8>(min(midRange / bucketSize, nNumaNodes - 1));
   const auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
 
-  // Set the correct Numa node bits
-  // taskdata->td_affin_mask = numa_topology.get_base_steal_bits() <<
-  // discreteProc;
-  taskdata->td_affin_mask = ALL_PROCS;
+  taskdata->td_affin_mask = static_cast<kmp_uint16>(1U << numaId);
   taskdata->td_numa_place = numaId;
 
   KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: Nthreads=%d, Nnuma=%d, "
                "numaid=%d, Proc=%d, "
                "bucketSize=%lu "
-               "MidIter#%d => Affin_mask=%lu.\n",
+               "MidIter#%d => Affin_mask=%u.\n",
                __FILE_NAME__, __LINE__, nthreads, nNumaNodes, numaId,
                discreteProc, bucketSize, midRange, taskdata->td_affin_mask));
 
   KMP_DEBUG_ASSERT(numaId < nNumaNodes);
   KMP_DEBUG_ASSERT(discreteProc < nthreads);
+}
+
+void Schedule::__kmp_reset_head_all(kmp_task_team *task_team) {
+  for (auto i = 0; i < task_team->tt.tt_nproc; ++i) {
+    kmp_thread_data_t *thread_data = &task_team->tt.tt_threads_data[i];
+    Schedule::__kmp_set_start_head(task_team, thread_data->td.td_thr, i);
+  }
+}
+
+void Schedule::__kmp_set_start_head(kmp_task_team_t *task_team,
+                                    kmp_info_t *thread, kmp_int32 tid) {
+  const auto numa_base_tid = Schedule::__kmp_get_numa_base(tid);
+
+  kmp_thread_data_t *threads_data =
+      &task_team->tt.tt_threads_data[numa_base_tid];
+  KMP_DEBUG_ASSERT(threads_data != NULL);
+  thread->th.numa_head_start = threads_data->td.td_deque_head;
+  KA_TRACE(3, ("__kmp_set_start_head: Thread tid=%d set head to %d\n", tid,
+               thread->th.numa_head_start));
+}
+
+kmp_uint16
+Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
+                                      kmp_thread_data_t *thread_data) {
+  const auto coresPerNuma =
+      numa_topology.get_num_cores() / numa_topology.get_num_numa();
+  const auto numStrictTasks = coresPerNuma * LOAD_STRICT;
+  // Distance of the current spot in queue in comparison to where queue started
+  // this taskloop
+  const auto distance =
+      (thread_data->td.td_deque_tail - thread->th.numa_head_start +
+       thread_data->td.td_deque_size) &
+      TASK_DEQUE_MASK(thread_data->td);
+  // If in strict range then disable load balancing for this task
+  if (distance <= numStrictTasks) {
+    return NO_LOAD_BALANCE;
+  }
+  return LOAD_BALANCE_BIT;
 }
 
 void Schedule::__kmp_show_affinity(kmp_info *thread) {
@@ -230,6 +256,14 @@ void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid,
   thread->th.th_new_place = place;
   thread->th.th_last_place = nthreads - 1;
   thread->th.force_affin = 1;
+
+  const auto numaId =
+      tid / (numa_topology.get_num_cores() / numa_topology.get_num_numa());
+  // This thread is allowed to steal tasks with matching mask
+  thread->th.steal_mask =
+      (1U << numaId) |
+      LOAD_BALANCE_BIT; // All threads can steal tasks with load balance bit
+
   __kmp_set_system_affinity(thread->th.th_affin_mask, TRUE);
   char buf[KMP_AFFIN_MASK_PRINT_LEN];
   __kmp_affinity_print_mask(buf, KMP_AFFIN_MASK_PRINT_LEN,
@@ -322,6 +356,8 @@ kmp_real64 Schedule::__kmp_get_routine_timer() { return routine_timer; }
 ///////////////////////////////////////////////
 ///               Topology section          ///
 ///////////////////////////////////////////////
+
+const NumaTopology Schedule::numa_topology = Schedule::__kmp_read_topology();
 
 NumaTopology Schedule::__kmp_read_topology() {
   hwloc_topology_t topology = nullptr;

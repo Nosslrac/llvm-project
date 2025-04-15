@@ -4,6 +4,7 @@
 #include "kmp_os.h"
 #include "kmp_perf_objects.h"
 #include "kmp_routine.h"
+#include "kmp_schedule.h"
 
 #include <asm/unistd_64.h>
 #include <cstdint>
@@ -127,6 +128,10 @@ template <PerfEvents ev> void enable_perf_event(kmp_info_t *thread) {
 
   int32_t fd = thread->th.perf_stats[perf_id(ev)];
 
+  if (fd < 3) {
+    return;
+  }
+
   KMP_DEBUG_ASSERT(fd > 2);
 
   ioctl(fd, PERF_EVENT_IOC_RESET);
@@ -151,6 +156,10 @@ template <PerfEvents ev>
 uint64_t stop_perf_event(kmp_info_t *thread, int32_t cpu_id) {
   // Stop event and read
   const int fd = thread->th.perf_stats[perf_id(ev)];
+
+  if (fd < 3) {
+    return 0;
+  }
 
   KMP_DEBUG_ASSERT(fd > 2);
 
@@ -390,21 +399,24 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
 
 void Perf::__kmp_summarize_taskloop_numa(kmp_team *team,
                                          const kmp_real64 taskloop_start_time) {
-  uint32_t nthreads = team->t.t_nproc;
+  uint32_t nthreads = std::min(static_cast<kmp_uint32>(team->t.t_nproc),
+                               Schedule::numa_topology.get_num_cores());
 
   KA_TRACE(1, ("\n%s:%d: __kmp_summarize_taskloop_numa: Summarizing"
                " stats for routine %p \n",
                __FILE_NAME__, __LINE__, team->t.t_threads[0]->th.routine_id));
 
-  const auto numaNodeSize = 8;
-  for (auto i = 0U; i < nthreads / numaNodeSize; i++) {
+  const auto numaNodeSize = Schedule::numa_topology.get_num_cores() /
+                            Schedule::numa_topology.get_num_numa();
+  for (kmp_uint32 i = 0U; i < nthreads / numaNodeSize; i++) {
 #ifdef AMD_PERF
     AMDRawResults accumAMD;
 #endif
     uint64_t accum[NUM_PERF_EVENTS] = {};
     kmp_real64 min_time = std::numeric_limits<kmp_real64>::max();
     kmp_real64 max_time = 0.0;
-    for (auto j = 0; j < 8 && (i * 8) + j < nthreads; ++j) {
+    for (kmp_uint32 j = 0;
+         j < numaNodeSize && (i * numaNodeSize) + j < nthreads; ++j) {
       kmp_info_t *thread = team->t.t_threads[(i * 8) + j];
       min_time = std::min(thread->th.task_finish_time, min_time);
       max_time = std::max(thread->th.task_finish_time, max_time);
