@@ -249,12 +249,16 @@ void Schedule::__kmp_show_affinity(kmp_info *thread) {
   }
 }
 
-void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid,
-                                             int place) {
+///
+/// @brief This function performs the logical thread pinning to physical
+/// cores and sets up NUMA specific variables for the thread.
+/// @note This is required for the performance montoring in kmp_perf.cpp
+///
+void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid) {
   kmp_team_t *team = thread->th.th_team;
   int32_t nthreads = team->t.t_nproc;
-  int tid = __kmp_tid_from_gtid(gtid);
-  place = tid; // TODO: Use topology to map threads to specific cores
+  int place = __kmp_tid_from_gtid(gtid);
+
   if (thread->th.th_affin_mask == NULL) {
     KA_TRACE(5, ("Alloc: T#%d\n", gtid));
     KMP_CPU_ALLOC(thread->th.th_affin_mask);
@@ -263,28 +267,28 @@ void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid,
     KMP_CPU_ZERO(thread->th.th_affin_mask);
   }
   KMP_CPU_SET(place, thread->th.th_affin_mask);
+
   thread->th.th_current_place = place;
   thread->th.th_new_place = place;
   thread->th.th_last_place = nthreads - 1;
   thread->th.force_affin = 1;
 
-  const auto numaId = tid / (Topo::numa_topology.get_num_cores() /
-                             Topo::numa_topology.get_num_numa());
+  const auto numaId =
+      static_cast<kmp_uint8>(place) / (Topo::numa_topology.get_num_cores() /
+                                       Topo::numa_topology.get_num_numa());
   // This thread is allowed to steal tasks with matching mask
   thread->th.steal_mask =
       (1U << numaId) |
       static_cast<kmp_uint16>(StealPolicy::FULL); // All threads can steal tasks
                                                   // with load balance bit
-
-  __kmp_set_system_affinity(thread->th.th_affin_mask, TRUE);
-  char buf[KMP_AFFIN_MASK_PRINT_LEN];
-  __kmp_affinity_print_mask(buf, KMP_AFFIN_MASK_PRINT_LEN,
-                            thread->th.th_affin_mask);
-  KA_TRACE(5, ("Setting thread affinity: Tid=%d T#%d, Affinity: %s\n", tid,
-               gtid, buf));
 }
 
-// Initialize global affinity object for the main thread and prepare for workers
+///
+/// @brief This function initializes the global affinity object in
+/// OpenMP runtime based on the hardware topology.
+/// @note This does not perform the thread pinning. For that
+/// refer to Schedule::__kmp_set_per_thread_affinity().
+///
 void Schedule::__kmp_set_numa_affinity(kmp_affinity_t *global_affin,
                                        int32_t ncpus) {
   // To make bind_place do something

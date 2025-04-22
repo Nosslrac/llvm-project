@@ -41,7 +41,7 @@ kmp_uint16 __kmp_get_load_balance_mask(kmp_info *thread,
 // Affinity part
 void __kmp_set_numa_affinity(kmp_affinity_t *affinity, int32_t ncpus);
 void __kmp_show_affinity(kmp_info *thread);
-void __kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid, int place);
+void __kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid);
 
 // Routine part
 void __kmp_store_routine_stats(kmp_int64 routine_id,

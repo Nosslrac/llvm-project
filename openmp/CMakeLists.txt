@@ -18,12 +18,12 @@ else()
   set(OPENMP_STANDALONE_BUILD FALSE)
 endif()
 
-# ME1
+# ODIN
 add_definitions(-DPERF_COUNTERS)
 #add_definitions(-DAMD_PERF)
 add_definitions(-DMOLDABILITY)
 add_definitions(-DLOADBALANCE)
-# ME2
+# ODIN END
 
 # Must go below project(..)
 include(GNUInstallDirs)
