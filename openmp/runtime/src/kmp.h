@@ -3061,19 +3061,18 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   // Perf counters for one task.
   // Resets when the task is finished.
   kmp_int32 perf_stats[NUM_PERF_EVENTS];
-  kmp_real64 time = 0.0;
-  kmp_real64 task_finish_time = 0.0;
+  kmp_real64 time;
 
   // Perf counters accumulated for all tasks running on a thread.
   // Resets when the taskloop is finished.
-  kmp_int64 perf_accum[NUM_PERF_EVENTS];
-  kmp_real64 time_accum = 0.0;
+  kmp_uint64 perf_accum[NUM_PERF_EVENTS];
 
 #ifdef AMD_PERF
   // Container for RAW perf events
   RawAMDPerfContainer perf_container;
 #endif
 #endif
+  kmp_real64 task_finish_time;
   // Routine id
   kmp_int64 routine_id;
 

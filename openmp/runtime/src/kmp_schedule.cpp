@@ -5,7 +5,9 @@
 #include "kmp_debug.h"
 #include <unordered_map>
 #include "kmp_os.h"
+#include "kmp_perf.h"
 #include "kmp_routine.h"
+#include "kmp_topo.h"
 
 #include <immintrin.h>
 
@@ -316,8 +318,11 @@ void Schedule::__kmp_set_numa_affinity(kmp_affinity_t *global_affin,
             global_affin->num_os_id_masks, global_affin->compact));
 }
 
-void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id,
-                                         routine_stats_nodes *stats) {
+void Schedule::__kmp_store_routine_stats(kmp_team *team, kmp_int64 routine_id) {
+  routine_stats_nodes stats(Topo::numa_topology.get_num_numa());
+
+  const kmp_real64 taskloop_start_time = Schedule::__kmp_get_routine_timer();
+  Perf::__kmp_get_taskloop_stats(team, stats, taskloop_start_time);
 
   // Verify that the routine exists in the map
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
@@ -326,7 +331,7 @@ void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id,
                routine_id));
 
   // Store the execution stats
-  routine_map.at(routine_id).storeExecution(*stats);
+  routine_map.at(routine_id).storeExecution(stats);
 }
 
 routine_config Schedule::__kmp_select_config(kmp_info *thread,

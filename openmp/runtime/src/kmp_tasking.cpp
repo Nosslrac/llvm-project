@@ -3087,17 +3087,8 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
   KA_TRACE(10, ("__kmpc_end_taskgroup(exit): T#%d task %p finished waiting\n",
                 gtid, taskdata));
 
-  routine_stats_nodes stats(Topo::numa_topology.get_num_numa());
-
-#ifdef PERF_COUNTERS
-  const auto taskloop_start_time = Schedule::__kmp_get_routine_timer();
-  Perf::__kmp_summarize_taskloop_numa(thread->th.th_team, taskloop_start_time);
-  Perf::__kmp_get_taskloop_stats(thread->th.th_team, &stats,
-                                 taskloop_start_time);
-  Perf::__kmp_reset_taskloop_stats(thread->th.th_team);
-#endif
-
-  Schedule::__kmp_store_routine_stats(thread->th.routine_id, &stats);
+  Schedule::__kmp_store_routine_stats(thread->th.th_team,
+                                      thread->th.routine_id);
 
 #if OMPT_SUPPORT && OMPT_OPTIONAL
   if (UNLIKELY(ompt_enabled.ompt_callback_sync_region)) {
