@@ -16,6 +16,7 @@
 #include "kmp_itt.h"
 #include "kmp_os.h"
 #include "kmp_stats.h"
+#include "kmp_topo.h"
 #include "kmp_wait_release.h"
 #include "kmp_taskdeps.h"
 #include "kmp_schedule.h"
@@ -545,7 +546,8 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
 
   // Find tasking deque specific to encountering thread
   // thread_data = &task_team->tt.tt_threads_data[tid];
-  thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata);
+  thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata,
+                                               (kmp_int64)task->routine);
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
   // we don't need it either because we have initialized the dequeue for hidden
@@ -684,6 +686,8 @@ void __kmp_push_current_task_to_thread(kmp_info_t *this_thr, kmp_team_t *team,
 // current_task: task suspending
 static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
                              kmp_taskdata_t *current_task) {
+  KA_TRACE(4, ("%s:%d: __kmp_task_start(entered) T#%d\n", __FILE_NAME__,
+               __LINE__, gtid));
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread = __kmp_threads[gtid];
   thread->th.routine_id = (kmp_int64)task->routine;
@@ -1061,6 +1065,7 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_task_team_t *task_team =
       thread->th.th_task_team; // might be NULL for serial teams...
+  KA_TRACE(5, ("__kmp_task_finish(enter): T#%d\n", gtid));
 
 #ifdef PERF_COUNTERS
   Perf::__kmp_stop_counters(thread, gtid, (kmp_int64)taskdata);
@@ -3082,7 +3087,7 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
   KA_TRACE(10, ("__kmpc_end_taskgroup(exit): T#%d task %p finished waiting\n",
                 gtid, taskdata));
 
-  routine_stats_nodes stats = {};
+  routine_stats_nodes stats(Topo::numa_topology.get_num_numa());
 
 #ifdef PERF_COUNTERS
   const auto taskloop_start_time = Schedule::__kmp_get_routine_timer();

@@ -1,10 +1,9 @@
 #include "kmp_perf.h"
-#include "kmp.h"
 #include "kmp_debug.h"
 #include "kmp_os.h"
 #include "kmp_perf_objects.h"
-#include "kmp_routine.h"
 #include "kmp_schedule.h"
+#include "kmp_topo.h"
 
 #include <asm/unistd_64.h>
 #include <cstdint>
@@ -128,6 +127,7 @@ template <PerfEvents ev> void enable_perf_event(kmp_info_t *thread) {
 
   int32_t fd = thread->th.perf_stats[perf_id(ev)];
 
+  // EM: is this Intel specific??
   if (fd < 3) {
     return;
   }
@@ -400,14 +400,19 @@ void Perf::__kmp_summarize_taskloop(kmp_team *team) {
 void Perf::__kmp_summarize_taskloop_numa(kmp_team *team,
                                          const kmp_real64 taskloop_start_time) {
   uint32_t nthreads = std::min(static_cast<kmp_uint32>(team->t.t_nproc),
-                               Schedule::numa_topology.get_num_cores());
+                               Topo::numa_topology.get_num_cores());
 
   KA_TRACE(3, ("\n%s:%d: __kmp_summarize_taskloop_numa: Summarizing"
                " stats for routine %p \n",
                __FILE_NAME__, __LINE__, team->t.t_threads[0]->th.routine_id));
+  const auto numaCores = Topo::numa_topology.get_num_cores();
+  const auto numNuma = Topo::numa_topology.get_num_numa();
+  KMP_DEBUG_ASSERT(numaCores);
+  KMP_DEBUG_ASSERT(numNuma);
 
-  const auto numaNodeSize = Schedule::numa_topology.get_num_cores() /
-                            Schedule::numa_topology.get_num_numa();
+  const auto numaNodeSize = numaCores / numNuma;
+  KMP_DEBUG_ASSERT(numaNodeSize);
+
   for (kmp_uint32 i = 0U; i < nthreads / numaNodeSize; i++) {
 #ifdef AMD_PERF
     AMDRawResults accumAMD;
@@ -417,7 +422,7 @@ void Perf::__kmp_summarize_taskloop_numa(kmp_team *team,
     kmp_real64 max_time = 0.0;
     for (kmp_uint32 j = 0;
          j < numaNodeSize && (i * numaNodeSize) + j < nthreads; ++j) {
-      kmp_info_t *thread = team->t.t_threads[(i * 8) + j];
+      kmp_info_t *thread = team->t.t_threads[(i * numaNodeSize) + j];
       min_time = std::min(thread->th.task_finish_time, min_time);
       max_time = std::max(thread->th.task_finish_time, max_time);
       log_and_sum_events(thread, accum);
@@ -493,7 +498,15 @@ void Perf::__kmp_summarize_taskloop_numa(kmp_team *team,
 void Perf::__kmp_get_taskloop_stats(kmp_team *team,
                                     routine_stats_nodes *ret_stats,
                                     const kmp_real64 taskloop_start_time) {
-  int32_t nthreads = team->t.t_nproc;
+  uint32_t nthreads = std::min(static_cast<kmp_uint32>(team->t.t_nproc),
+                               Topo::numa_topology.get_num_cores());
+  const auto numaCores = Topo::numa_topology.get_num_cores();
+  const auto numNuma = Topo::numa_topology.get_num_numa();
+  KMP_DEBUG_ASSERT(numaCores);
+  KMP_DEBUG_ASSERT(numNuma);
+
+  const auto numaNodeSize = numaCores / numNuma;
+  KMP_DEBUG_ASSERT(numaNodeSize);
   uint64_t tot_cycles = 0;
   uint64_t tot_instr = 0;
   kmp_real64 exec_time = 0.0;
@@ -501,6 +514,7 @@ void Perf::__kmp_get_taskloop_stats(kmp_team *team,
   /* Loop over all threads to calculate the metrics */
   for (int i = 0; i < nthreads; ++i) {
     kmp_info_t *thread = team->t.t_threads[i];
+    int iN = i / numaNodeSize;
 
     /* Calculate execution_time stat */
     if (exec_time < thread->th.task_finish_time)
@@ -511,21 +525,20 @@ void Perf::__kmp_get_taskloop_stats(kmp_team *team,
     tot_cycles += thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)];
 
     // Combine the stats for each NUMA node
-    if ((i + 1) % 8 == 0) {
+    if ((i + 1) % numaNodeSize == 0) {
 
-      (*ret_stats)[i / 8].execution_time =
+      (*ret_stats)[iN].execution_time =
           std::max((exec_time - taskloop_start_time), 0.0);
       exec_time = 0.0;
 
-      (*ret_stats)[i / 8].IPC = frac(tot_instr, tot_cycles);
+      (*ret_stats)[iN].IPC = frac(tot_instr, tot_cycles);
       tot_instr = 0.0;
       tot_cycles = 0.0;
 
-      KA_TRACE(4,
-               ("Perf::__kmp_get_taskloop_stats: for routine %p node[%d]: "
-                "execT:%f, IPC:%f\n",
-                team->t.t_threads[0]->th.routine_id, (i / 8),
-                (*ret_stats)[i / 8].execution_time, (*ret_stats)[i / 8].IPC));
+      KA_TRACE(4, ("Perf::__kmp_get_taskloop_stats: for routine %p node[%d]: "
+                   "execT:%f, IPC:%f\n",
+                   team->t.t_threads[0]->th.routine_id, (iN),
+                   (*ret_stats)[iN].execution_time, (*ret_stats)[iN].IPC));
     }
   }
 }

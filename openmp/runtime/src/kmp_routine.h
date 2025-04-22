@@ -3,23 +3,19 @@
 #include "kmp_os.h"
 #include <unordered_map>
 #include "kmp_debug.h"
+#include "kmp_topo.h"
 #include <cfloat>
 #include <climits>
-#include <array>
+#include <vector>
 
 union kmp_info;
-const int NUM_NUMANODES = 8;
-const int NUMANODE_SIZE = 8;
-const int NUM_SOCKETS = 2;
-const int SOCKET_SIZE = 4; // Number of NUMA nodes
-const int MOLDABILITY_GRANULARITY = NUMANODE_SIZE;
 constexpr kmp_real64 TINY_TASKLOOP_THRESHOLD = 0.005;
 constexpr kmp_real64 LOAD_BALANCE_REQUIRED_FACTOR = 2.0;
 
-enum class StealPolicy : int {
+enum class StealPolicy : kmp_uint16 {
   NUMA = 0,
   SOCKET = 1,
-  FULL = 2,
+  FULL = (1U << 15),
 };
 
 struct routine_config {
@@ -34,7 +30,7 @@ struct routine_stats {
   kmp_real64 IPC = -1;
 };
 
-typedef std::array<routine_stats, NUM_NUMANODES> routine_stats_nodes;
+using routine_stats_nodes = std::vector<routine_stats>;
 
 struct routine_config_hash {
   std::size_t operator()(const routine_config &rc) const {
@@ -55,6 +51,12 @@ private:
   routine_config current_config;
   bool minima_found;
   bool initial_iteration;
+
+  int NUM_NUMANODES;
+  int NUMANODE_SIZE;
+  int NUM_SOCKETS;
+  int SOCKET_SIZE; // Number of NUMA nodes
+  int MOLDABILITY_GRANULARITY;
 
   routine_config getFastestConfig();
   kmp_real64 calcSlowestNUMAExec(routine_config);

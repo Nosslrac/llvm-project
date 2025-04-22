@@ -14,21 +14,24 @@ kmp_int64 getDiff(kmp_int64 a, kmp_int64 b) { return a > b ? a - b : b - a; }
 
 kmp_int64 getMin(kmp_int64 a, kmp_int64 b) { return a < b ? a : b; }
 
-kmp_uint16 calcMask(kmp_uint8 offset, kmp_uint8 num) {
+kmp_uint16 calcMask(kmp_uint8 offset, kmp_uint8 num, int NUM_NUMA) {
+
+  KA_TRACE(15, ("Routine::calcMask: offest: %d, num: %d, NUMA: %d\n", offset,
+                num, NUM_NUMA));
 
   kmp_uint64 mask = (1ULL << num);
   mask = mask - 1U;
-  if (offset + num <= NUM_NUMANODES) {
+  if (offset + num <= NUM_NUMA) {
     mask = mask << offset;
   } else {
-    mask = mask << (NUM_NUMANODES - num);
+    mask = mask << (NUM_NUMA - num);
   }
   return mask;
 }
 
-void printStatsArray(std::array<routine_stats, NUM_NUMANODES> arr) {
+void printStatsArray(routine_stats_nodes arr, int NUM_NUMA) {
 
-  for (int i = 0; i < NUM_NUMANODES; i++) {
+  for (int i = 0; i < NUM_NUMA; i++) {
     KA_TRACE(1, ("Node[%d] ExecT:%f \n", i, arr[i].execution_time));
   }
 }
@@ -44,7 +47,19 @@ inline bool operator==(const routine_config &lhs, const routine_config &rhs) {
 // Class constructor
 Routine::Routine(kmp_int64 id)
     : routine_id(id), current_config(UNDEFINED_CONFIG), minima_found(false),
-      initial_iteration(false) {}
+      initial_iteration(false) {
+
+  NUM_NUMANODES = Topo::numa_topology.get_num_numa();
+  KMP_DEBUG_ASSERT(NUM_NUMANODES);
+  NUMANODE_SIZE = Topo::numa_topology.get_num_cores() / NUM_NUMANODES;
+  KMP_DEBUG_ASSERT(NUMANODE_SIZE);
+  NUM_SOCKETS = Topo::numa_topology.get_num_socket();
+  KMP_DEBUG_ASSERT(NUM_SOCKETS);
+  SOCKET_SIZE =
+      NUM_NUMANODES / NUM_SOCKETS; // Number of NUMA nodes on each socket
+  KMP_DEBUG_ASSERT(SOCKET_SIZE);
+  MOLDABILITY_GRANULARITY = NUMANODE_SIZE;
+}
 
 routine_config Routine::getCurrentConfig() { return current_config; }
 
@@ -53,7 +68,7 @@ routine_config Routine::getDefaultConfig(kmp_info *thread,
   routine_config config;
   config.num_threads = thread->th.th_team->t.t_nproc;
   config.num_tasks = num_tasks;
-  config.node_mask = calcMask(0, 8);
+  config.node_mask = calcMask(0, NUM_NUMANODES, NUM_NUMANODES);
   config.task_affinity = StealPolicy::NUMA;
 
   // Update current config
@@ -102,7 +117,7 @@ routine_config Routine::getNextConfig() {
     if (calcSlowestNUMAExec(current_config) < TINY_TASKLOOP_THRESHOLD) {
 
       next_config.num_threads = MOLDABILITY_GRANULARITY;
-      KA_TRACE(2, ("Routine::getNextConfig(): Very short taskloop!!"
+      KA_TRACE(1, ("Routine::getNextConfig(): Very short taskloop!!"
                    " Only use 1 NUMA node (%d threads) for routine %p .\n",
                    next_config.num_threads, routine_id));
       minima_found = true;
@@ -234,14 +249,14 @@ void Routine::storeExecution(routine_stats_nodes stats) {
 
   // Make sure only active NUMA nodes have reported stats, remove all other
   // stats.
-  for (int i = 0; i < NUM_NUMANODES; i++) {
-    if (!((mask >> i) & 1U) && (stats[i].execution_time != 0)) {
-      stats[i] = {0, 0};
-      KA_TRACE(1, ("Routine::storeExecution(): Stats removed for node[%d] "
-                   "(routine %p)\n",
-                   i, routine_id));
-    }
-  }
+  /*   for (int i = 0; i < NUM_NUMANODES; i++) {
+      if (!((mask >> i) & 1U) && (stats[i].execution_time != 0)) {
+        stats[i] = {0, 0};
+        KA_TRACE(1, ("Routine::storeExecution(): Stats removed for node[%d] "
+                     "(routine %p)\n",
+                     i, routine_id));
+      }
+    } */
 
   // If config doesnt exists, just add the config and stats
   if (execution_history.find(current_config) == execution_history.end()) {
@@ -253,7 +268,7 @@ void Routine::storeExecution(routine_stats_nodes stats) {
               routine_id, current_config.num_threads, current_config.num_tasks,
               static_cast<int>(current_config.task_affinity)));
 
-    printStatsArray(stats);
+    printStatsArray(stats, NUM_NUMANODES);
     return;
   }
 
@@ -262,10 +277,10 @@ void Routine::storeExecution(routine_stats_nodes stats) {
                routine_id, current_config.num_threads, current_config.num_tasks,
                static_cast<int>(current_config.task_affinity)));
 
-  printStatsArray(stats);
+  printStatsArray(stats, NUM_NUMANODES);
 
   // For now, we just overwrite the stats with latest run
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < NUM_NUMANODES; i++) {
     execution_history.at(current_config)[i] = stats[i];
   }
 }
@@ -340,6 +355,7 @@ kmp_real64 Routine::calcAverageNUMAExec(routine_config config) {
 
   kmp_real64 avrg_time = 0.0;
   int nodes = config.num_threads / NUMANODE_SIZE;
+  KMP_DEBUG_ASSERT(nodes);
 
   for (int i = 0; i < NUM_NUMANODES; i++) {
 
@@ -376,7 +392,7 @@ kmp_uint16 Routine::getNUMAMask(kmp_uint64 num_nodes) {
   KMP_DEBUG_ASSERT(fastest_node <= max_node_id);
 
   kmp_uint8 node_offset = (fastest_node / SOCKET_SIZE) * SOCKET_SIZE;
-  mask = calcMask(node_offset, num_nodes);
+  mask = calcMask(node_offset, num_nodes, NUM_NUMANODES);
 
   kmp_uint16 max_val = (1ULL << NUM_NUMANODES) - 1;
   KMP_DEBUG_ASSERT(mask <= max_val);
