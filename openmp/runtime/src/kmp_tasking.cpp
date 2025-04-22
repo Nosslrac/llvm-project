@@ -16,6 +16,7 @@
 #include "kmp_itt.h"
 #include "kmp_os.h"
 #include "kmp_stats.h"
+#include "kmp_topo.h"
 #include "kmp_wait_release.h"
 #include "kmp_taskdeps.h"
 #include "kmp_schedule.h"
@@ -545,7 +546,8 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
 
   // Find tasking deque specific to encountering thread
   // thread_data = &task_team->tt.tt_threads_data[tid];
-  thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata);
+  thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata,
+                                               (kmp_int64)task->routine);
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
   // we don't need it either because we have initialized the dequeue for hidden
@@ -684,6 +686,8 @@ void __kmp_push_current_task_to_thread(kmp_info_t *this_thr, kmp_team_t *team,
 // current_task: task suspending
 static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
                              kmp_taskdata_t *current_task) {
+  KA_TRACE(4, ("%s:%d: __kmp_task_start(entered) T#%d\n", __FILE_NAME__,
+               __LINE__, gtid));
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread = __kmp_threads[gtid];
   thread->th.routine_id = (kmp_int64)task->routine;
@@ -1061,6 +1065,7 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_task_team_t *task_team =
       thread->th.th_task_team; // might be NULL for serial teams...
+  KA_TRACE(5, ("__kmp_task_finish(enter): T#%d\n", gtid));
 
 #ifdef PERF_COUNTERS
   Perf::__kmp_stop_counters(thread, gtid, (kmp_int64)taskdata);
@@ -3082,16 +3087,17 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
   KA_TRACE(10, ("__kmpc_end_taskgroup(exit): T#%d task %p finished waiting\n",
                 gtid, taskdata));
 
-  routine_stats stats = {0, 0};
+  routine_stats_nodes stats(Topo::numa_topology.get_num_numa());
 
 #ifdef PERF_COUNTERS
   const auto taskloop_start_time = Schedule::__kmp_get_routine_timer();
   Perf::__kmp_summarize_taskloop_numa(thread->th.th_team, taskloop_start_time);
-  stats = Perf::__kmp_get_taskloop_stats(thread->th.th_team);
+  Perf::__kmp_get_taskloop_stats(thread->th.th_team, &stats,
+                                 taskloop_start_time);
   Perf::__kmp_reset_taskloop_stats(thread->th.th_team);
 #endif
 
-  Schedule::__kmp_store_routine_stats(thread->th.routine_id, stats);
+  Schedule::__kmp_store_routine_stats(thread->th.routine_id, &stats);
 
 #if OMPT_SUPPORT && OMPT_OPTIONAL
   if (UNLIKELY(ompt_enabled.ompt_callback_sync_region)) {
@@ -4978,7 +4984,7 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
                              (last_chunk < 0 ? last_chunk : extras));
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
-  KA_TRACE(5, ("__kmp_taskloop_linear: T#%d: %lld tasks, grainsize %lld, "
+  KA_TRACE(1, ("__kmp_taskloop_linear: T#%d: %lld tasks, grainsize %lld, "
                "extras %lld, last_chunk %lld, i=%lld,%lld(%d)%lld, dup %p\n",
                gtid, num_tasks, grainsize, extras, last_chunk, lower, upper,
                ub_glob, st, task_dup));
@@ -5209,7 +5215,7 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
 
-  KA_TRACE(2,
+  KA_TRACE(3,
            ("__kmp_taskloop_recur: Start taskloop_recur %d\n", lower_offset));
 
   // split the loop in two halves
@@ -5382,7 +5388,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
         KMP_MIN(thread->th.th_team_nproc * 10, INITIAL_TASK_DEQUE_SIZE);
   }
 
-  KA_TRACE(2, ("__kmp_taskloop: T#%d, task %p, lb %lld, ub %lld, st %lld, "
+  KA_TRACE(3, ("__kmp_taskloop: T#%d, task %p, lb %lld, ub %lld, st %lld, "
                "grain %llu(%d, %d), dup %p\n",
                gtid, taskdata, lower, upper, st, grainsize, sched, modifier,
                task_dup));
@@ -5398,7 +5404,8 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     // (Selects default config if no history is available)
     thread->th.routine_id = (kmp_int64)task->routine;
     next_config = Schedule::__kmp_select_config(thread, grainsize);
-    if (KMP_TASKING_ENABLED(thread->th.th_task_team)) {
+    if (thread->th.th_task_team &&
+        KMP_TASKING_ENABLED(thread->th.th_task_team)) {
       // If tasking isn't enabled the numa head will be initialized in
       // __kmp_enable_tasking
       Schedule::__kmp_reset_head_all(thread->th.th_task_team);
@@ -5505,7 +5512,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     __kmpc_end_taskgroup(loc, gtid);
   }
 
-  KA_TRACE(2, ("__kmp_taskloop(exit): T#%d\n", gtid));
+  KA_TRACE(3, ("__kmp_taskloop(exit): T#%d\n", gtid));
 }
 
 /*!

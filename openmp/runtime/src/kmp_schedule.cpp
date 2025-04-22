@@ -11,9 +11,6 @@
 
 namespace {
 
-constexpr kmp_uint16 ALL_PROCS = static_cast<kmp_uint16>(~0U);
-constexpr kmp_uint16 LOAD_BALANCE_BIT = (1U << 15);
-constexpr kmp_uint16 NO_LOAD_BALANCE = 0;
 constexpr kmp_uint32 LOAD_STRICT = 3;
 
 inline int bitCount(kmp_uint64 mask) {
@@ -82,8 +79,13 @@ kmp_int32 __kmp_get_distribution_tid(kmp_taskdata_t *taskdata,
   KMP_DEBUG_ASSERT(taskdata);
 
   // Divide the threads equally accross NUMA nodes
-  const auto numaSize = Schedule::numa_topology.get_num_cores() /
-                        Schedule::numa_topology.get_num_numa();
+  const auto numaCores = Topo::numa_topology.get_num_cores();
+  const auto numNuma = Topo::numa_topology.get_num_numa();
+  KMP_DEBUG_ASSERT(numaCores);
+  KMP_DEBUG_ASSERT(numNuma);
+
+  const auto numaSize = numaCores / numNuma;
+  KMP_DEBUG_ASSERT(numaSize);
   const auto processor = taskdata->td_numa_place * numaSize;
 
   KMP_DEBUG_ASSERT(processor < nthreads);
@@ -93,24 +95,24 @@ kmp_int32 __kmp_get_distribution_tid(kmp_taskdata_t *taskdata,
 } // namespace
 
 kmp_int32 Schedule::__kmp_get_numa_base(kmp_int32 victim_tid) {
-  static const auto nNumaNodes = numa_topology.get_num_numa();
-  static const auto numaSize = numa_topology.get_num_cores() / nNumaNodes;
+  const auto numaCores = Topo::numa_topology.get_num_cores();
+  const auto numNuma = Topo::numa_topology.get_num_numa();
+  KMP_DEBUG_ASSERT(numaCores);
+  KMP_DEBUG_ASSERT(numNuma);
+
+  const auto numaSize = numaCores / numNuma;
+  KMP_DEBUG_ASSERT(numaSize);
   return static_cast<kmp_int32>((victim_tid / numaSize) * numaSize);
 }
 
 kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
                                                   kmp_task_team *task_team,
-                                                  kmp_taskdata_t *taskdata) {
+                                                  kmp_taskdata_t *taskdata,
+                                                  kmp_int64 routine_id) {
 
   KMP_DEBUG_ASSERT(taskdata);
 
   const auto nthreads = task_team->tt.tt_nproc;
-  if (nthreads == 1) {
-    // Tasks in omp master should be placed on the calling threads deque
-    const auto new_gtid = __kmp_gtid_from_thread(master_thread);
-    const auto tid = __kmp_tid_from_gtid(new_gtid);
-    return &task_team->tt.tt_threads_data[tid];
-  }
 
   kmp_int32 base_numa_tid = __kmp_get_distribution_tid(
       taskdata, nthreads); // Get primary thread from NUMA node
@@ -118,8 +120,8 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
   kmp_thread_data_t *thread_data =
       &task_team->tt.tt_threads_data[base_numa_tid];
   kmp_info_t *base_numa_thread = thread_data->td.td_thr;
-  taskdata->td_affin_mask |=
-      Schedule::__kmp_get_load_balance_mask(base_numa_thread, thread_data);
+  taskdata->td_affin_mask |= Schedule::__kmp_get_load_balance_mask(
+      base_numa_thread, thread_data, routine_id);
 
   KA_TRACE(3, ("%s:%d: __kmp_optimal_thread: Base NUMA thread tid=%d\n ",
                __FILE_NAME__, __LINE__, base_numa_tid));
@@ -129,7 +131,7 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
 //
 void Schedule::__kmp_set_any_affinity(kmp_taskdata_t *taskdata) {
   KMP_DEBUG_ASSERT(taskdata);
-  taskdata->td_affin_mask = ALL_PROCS;
+  taskdata->td_affin_mask = static_cast<kmp_uint16>(StealPolicy::FULL);
   KA_TRACE(3, ("__kmp_set_any_affinity: Setting any affinity child task %p of "
                "parent %p\n",
                taskdata, taskdata->td_parent));
@@ -144,47 +146,49 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   kmp_team_t *team = thread->th.th_team;
   auto nthreads = static_cast<uint32_t>(team->t.t_nproc);
 
-  if (nthreads == 1) { // When single task is executed
-    taskdata->td_numa_place = 0;
-    taskdata->td_affin_mask = ALL_PROCS;
+  // Info based on topology
+  const auto numaCores = Topo::numa_topology.get_num_cores();
+  KMP_DEBUG_ASSERT(numaCores);
+#ifdef MOLDABILITY
+  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
+  routine_config config = routine_map.at(routine_id).getCurrentConfig();
+  const auto numNuma = bitCount(config.node_mask);
+  const auto firstNode = bitScan(config.node_mask);
+#else
+  const auto numNuma = Topo::numa_topology.get_num_numa();
+  const auto firstNode = 0;
+#endif
+  KMP_DEBUG_ASSERT(numNuma);
+
+  const auto numaNodeSize = numaCores / numNuma;
+  KMP_DEBUG_ASSERT(numaNodeSize);
+
+  // When single thread is executing
+  if (nthreads == 1) {
+    taskdata->td_numa_place = static_cast<kmp_uint8>(__kmp_tid_from_gtid(
+                                  __kmp_gtid_from_thread(thread))) /
+                              numaNodeSize;
+    taskdata->td_affin_mask = static_cast<kmp_uint16>(StealPolicy::FULL);
     return;
   }
 
-  KA_TRACE(3, (" __kmp_set_task_affinity (enter): nproc:%d,"
-               " lb:%lld, ub:%lld, glob_ub:%lld\n",
-               thread->th.th_team_nproc, lb, ub, glob_ub));
-  // TODO: Use moldability / config to select stealing and distribution
-  /* if (has_config(routine_id)) {
-    Do moldability
-    config = Routine::get_config(routine_id, lb, ub, glob_ub);
-    taskdata->td_numa_place = config.place;
-    taskdata->td_affin_mask = config.steal;
-    return;
-  }*/
-
-  // Fallback based on topology
-  const auto nNumaNodes = numa_topology.get_num_numa();
-  const auto numaNodeSize = numa_topology.get_num_cores() / nNumaNodes;
-
   const auto midRange = (lb + ub) / 2;
-  const auto bucketSize = max(glob_ub / nNumaNodes, numaNodeSize);
-  // Get numa node id, cannot be larger than the last one
-  const auto numaId =
-      static_cast<kmp_uint8>(min(midRange / bucketSize, nNumaNodes - 1));
-  const auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
+  const auto bucketSize = max(glob_ub / numNuma, numaNodeSize);
+  const auto numaId = static_cast<kmp_uint8>(
+      min((midRange / bucketSize) + firstNode, numNuma - 1));
+  KMP_DEBUG_ASSERT(numaId < numNuma);
 
   taskdata->td_affin_mask = static_cast<kmp_uint16>(1U << numaId);
   taskdata->td_numa_place = numaId;
 
-  KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: Nthreads=%d, Nnuma=%d, "
-               "numaid=%d, Proc=%d, "
-               "bucketSize=%lu "
-               "MidIter#%d => Affin_mask=%u.\n",
-               __FILE_NAME__, __LINE__, nthreads, nNumaNodes, numaId,
-               discreteProc, bucketSize, midRange, taskdata->td_affin_mask));
-
-  KMP_DEBUG_ASSERT(numaId < nNumaNodes);
-  KMP_DEBUG_ASSERT(discreteProc < nthreads);
+  KA_TRACE(
+      3,
+      ("%s:%d: __kmp_set_task_affinity: for routine %p: Nthreads=%d, Nnuma=%d, "
+       "numaid=%d,"
+       "bucketSize=%lu "
+       "MidIter#%d => Affin_mask=%lu.\n",
+       __FILE_NAME__, __LINE__, routine_id, nthreads, numNuma, numaId,
+       bucketSize, midRange, taskdata->td_affin_mask));
 }
 
 void Schedule::__kmp_reset_head_all(kmp_task_team *task_team) {
@@ -206,11 +210,12 @@ void Schedule::__kmp_set_start_head(kmp_task_team_t *task_team,
                thread->th.numa_head_start));
 }
 
-kmp_uint16
-Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
-                                      kmp_thread_data_t *thread_data) {
+kmp_uint16 Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
+                                                 kmp_thread_data_t *thread_data,
+                                                 kmp_int64 routine_id) {
+
   const auto coresPerNuma =
-      numa_topology.get_num_cores() / numa_topology.get_num_numa();
+      Topo::numa_topology.get_num_cores() / Topo::numa_topology.get_num_numa();
   const auto numStrictTasks = coresPerNuma * LOAD_STRICT;
   // Distance of the current spot in queue in comparison to where queue started
   // this taskloop
@@ -218,11 +223,17 @@ Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
       (thread_data->td.td_deque_tail - thread->th.numa_head_start +
        thread_data->td.td_deque_size) &
       TASK_DEQUE_MASK(thread_data->td);
+
   // If in strict range then disable load balancing for this task
   if (distance <= numStrictTasks) {
-    return NO_LOAD_BALANCE;
+    return static_cast<kmp_uint16>(StealPolicy::NUMA);
   }
-  return LOAD_BALANCE_BIT;
+#ifdef MOLDABILITY
+  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
+  routine_config config = routine_map.at(routine_id).getCurrentConfig();
+  return static_cast<kmp_uint16>(config.task_affinity);
+#endif
+  return static_cast<kmp_uint16>(StealPolicy::FULL);
 }
 
 void Schedule::__kmp_show_affinity(kmp_info *thread) {
@@ -257,12 +268,13 @@ void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid,
   thread->th.th_last_place = nthreads - 1;
   thread->th.force_affin = 1;
 
-  const auto numaId =
-      tid / (numa_topology.get_num_cores() / numa_topology.get_num_numa());
+  const auto numaId = tid / (Topo::numa_topology.get_num_cores() /
+                             Topo::numa_topology.get_num_numa());
   // This thread is allowed to steal tasks with matching mask
   thread->th.steal_mask =
       (1U << numaId) |
-      LOAD_BALANCE_BIT; // All threads can steal tasks with load balance bit
+      static_cast<kmp_uint16>(StealPolicy::FULL); // All threads can steal tasks
+                                                  // with load balance bit
 
   __kmp_set_system_affinity(thread->th.th_affin_mask, TRUE);
   char buf[KMP_AFFIN_MASK_PRINT_LEN];
@@ -301,22 +313,16 @@ void Schedule::__kmp_set_numa_affinity(kmp_affinity_t *global_affin,
 }
 
 void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id,
-                                         routine_stats stats) {
-
-  kmp_real64 end_time;
-  __kmp_read_system_time(&end_time);
-  kmp_real64 tot_exec_time = end_time - routine_timer;
-  stats.execution_time = tot_exec_time;
+                                         routine_stats_nodes *stats) {
 
   // Verify that the routine exists in the map
-  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
+  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
 
-  KA_TRACE(2, ("__kmp_store_routine_stats: New stat store for routine %p:"
-               " tot_exec_time:%f, stall_ratio:%f\n",
-               routine_id, stats.execution_time, stats.stall_ratio));
+  KA_TRACE(3, ("__kmp_store_routine_stats: New stat store for routine %p\n",
+               routine_id));
 
   // Store the execution stats
-  routine_map.at(routine_id).storeExecution(stats);
+  routine_map.at(routine_id).storeExecution(*stats);
 }
 
 routine_config Schedule::__kmp_select_config(kmp_info *thread,
@@ -331,18 +337,14 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread,
     ret_config = routine_map.at(routine_id).getDefaultConfig(thread, num_tasks);
 
   } else {
-#ifdef MOLDABILITY
     ret_config = routine_map.at(routine_id).getNextConfig();
-#else
-    ret_config = routine_map.at(routine_id).getDefaultConfig(thread, num_tasks);
-#endif
   }
 
-  KA_TRACE(
-      1,
-      ("__kmp_select_config: routine %p was given new config={%d, %d, %d}.\n",
-       routine_id, ret_config.num_threads, ret_config.num_tasks,
-       static_cast<int>(ret_config.task_affinity)));
+  KA_TRACE(1,
+           ("__kmp_select_config: routine %p was given new config={%d, %d, %d, "
+            "%d}.\n",
+            routine_id, ret_config.num_threads, ret_config.num_tasks,
+            ret_config.node_mask, static_cast<int>(ret_config.task_affinity)));
 
   return ret_config;
 }
@@ -352,39 +354,3 @@ void Schedule::__kmp_start_routine_timer() {
 }
 
 kmp_real64 Schedule::__kmp_get_routine_timer() { return routine_timer; }
-
-///////////////////////////////////////////////
-///               Topology section          ///
-///////////////////////////////////////////////
-
-const NumaTopology Schedule::numa_topology = Schedule::__kmp_read_topology();
-
-NumaTopology Schedule::__kmp_read_topology() {
-  hwloc_topology_t topology = nullptr;
-  // Load topology
-  if (hwloc_topology_init(&topology) == -1) {
-    KMP_FATAL(MsgExiting, "Hardware topology not read");
-    return NumaTopology(0, 0, 0, 0);
-  }
-  if (hwloc_topology_load(topology) == -1) {
-    KMP_FATAL(MsgExiting, "Hardware topology not read");
-    return NumaTopology(0, 0, 0, 0);
-  }
-
-  // Get relevant intro
-  const auto nNumaNodes =
-      hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
-  const auto ncores = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_CORE);
-  const auto nsockets = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PACKAGE);
-  const auto base_steal_bits = (1ULL << nNumaNodes) - 1;
-
-  KA_TRACE(1, ("__kmp_read_topology: Number of NUMA nodes detected to %u, "
-               "total cores = %u, sockets = %u, base_steal_bits = %lu\n",
-               nNumaNodes, ncores, nsockets, base_steal_bits));
-
-  // Todo: generate stealmasks based on policy
-
-  return NumaTopology(static_cast<kmp_uint32>(nNumaNodes),
-                      static_cast<kmp_uint32>(ncores),
-                      static_cast<kmp_uint32>(nsockets), base_steal_bits);
-}
