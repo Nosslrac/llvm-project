@@ -693,7 +693,9 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
   thread->th.routine_id = (kmp_int64)task->routine;
 
 #ifdef PERF_COUNTERS
-  Perf::__kmp_start_counters(thread);
+  if (taskdata->td_affin_mask != StealPolicy::TASK_GENERATION) {
+    Perf::__kmp_start_counters(thread);
+  }
 #endif
 
   const int cpu = sched_getcpu();
@@ -1066,11 +1068,13 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   kmp_task_team_t *task_team =
       thread->th.th_task_team; // might be NULL for serial teams...
   KA_TRACE(5, ("__kmp_task_finish(enter): T#%d\n", gtid));
-
+  if (taskdata->td_affin_mask !=
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
+    __kmp_read_system_time(&thread->th.task_finish_time);
 #ifdef PERF_COUNTERS
-  Perf::__kmp_stop_counters(thread, gtid, (kmp_int64)taskdata);
-  __kmp_read_system_time(&thread->th.task_finish_time);
+    Perf::__kmp_stop_counters(thread, gtid, (kmp_int64)taskdata);
 #endif
+  }
 
 #if OMPX_TASKGRAPH
   // to avoid seg fault when we need to access taskdata->td_flags after free
@@ -5394,7 +5398,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     // Select config for next taskloop execution based on execution history
     // (Selects default config if no history is available)
     thread->th.routine_id = (kmp_int64)task->routine;
-    next_config = Schedule::__kmp_select_config(thread, grainsize);
+    next_config = Schedule::__kmp_select_config(thread);
     if (thread->th.th_task_team &&
         KMP_TASKING_ENABLED(thread->th.th_task_team)) {
       // If tasking isn't enabled the numa head will be initialized in

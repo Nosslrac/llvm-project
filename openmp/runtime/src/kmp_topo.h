@@ -15,19 +15,19 @@ struct kmp_affinity_t;
 class NumaTopology {
 public:
   explicit NumaTopology(kmp_uint32 num_numa, kmp_uint32 num_cores,
-                        kmp_uint32 num_sockets, kmp_uint64 base_steal_bits)
+                        kmp_uint32 num_sockets)
       : m_num_numa(num_numa), m_num_cores(num_cores),
-        m_num_sockets(num_sockets), m_base_steal_bits(base_steal_bits) {};
+        m_num_sockets(num_sockets), m_numa_size(num_cores / num_numa) {};
   kmp_uint32 get_num_numa() const { return m_num_numa; }
   kmp_uint32 get_num_cores() const { return m_num_cores; }
   kmp_uint32 get_num_socket() const { return m_num_sockets; }
-  kmp_uint64 get_base_steal_bits() const { return m_base_steal_bits; }
+  kmp_uint32 get_numa_size() const { return m_numa_size; }
 
 private:
   kmp_uint32 m_num_numa;
   kmp_uint32 m_num_cores;
   kmp_uint32 m_num_sockets;
-  kmp_uint64 m_base_steal_bits;
+  kmp_uint32 m_numa_size;
 };
 
 namespace Topo {

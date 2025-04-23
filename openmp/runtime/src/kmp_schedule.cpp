@@ -133,7 +133,8 @@ kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
 //
 void Schedule::__kmp_set_any_affinity(kmp_taskdata_t *taskdata) {
   KMP_DEBUG_ASSERT(taskdata);
-  taskdata->td_affin_mask = static_cast<kmp_uint16>(StealPolicy::FULL);
+  taskdata->td_affin_mask =
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
   KA_TRACE(3, ("__kmp_set_any_affinity: Setting any affinity child task %p of "
                "parent %p\n",
                taskdata, taskdata->td_parent));
@@ -161,7 +162,6 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   const auto firstNode = 0;
 #endif
   KMP_DEBUG_ASSERT(numNuma);
-
   const auto numaNodeSize = numaCores / numNuma;
   KMP_DEBUG_ASSERT(numaNodeSize);
 
@@ -233,7 +233,7 @@ kmp_uint16 Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
 #ifdef MOLDABILITY
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
   routine_config config = routine_map.at(routine_id).getCurrentConfig();
-  return static_cast<kmp_uint16>(config.task_affinity);
+  return static_cast<kmp_uint16>(config.steal_policy);
 #endif
   return static_cast<kmp_uint16>(StealPolicy::FULL);
 }
@@ -334,16 +334,16 @@ void Schedule::__kmp_store_routine_stats(kmp_team *team, kmp_int64 routine_id) {
   routine_map.at(routine_id).storeExecution(stats);
 }
 
-routine_config Schedule::__kmp_select_config(kmp_info *thread,
-                                             kmp_uint64 num_tasks) {
+routine_config Schedule::__kmp_select_config(kmp_info *thread) {
   routine_config ret_config;
   kmp_int64 routine_id = thread->th.routine_id;
 
   // Check if routine has executed before
   // If not, add new routine to map and return default config
   if (routine_map.find(routine_id) == routine_map.end()) {
-    routine_map.emplace(routine_id, Routine(routine_id));
-    ret_config = routine_map.at(routine_id).getDefaultConfig(thread, num_tasks);
+    routine_map.emplace(routine_id,
+                        Routine(routine_id, thread->th.th_team_nproc));
+    ret_config = routine_map.at(routine_id).getCurrentConfig();
 
   } else {
     ret_config = routine_map.at(routine_id).getNextConfig();
@@ -353,7 +353,7 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread,
            ("__kmp_select_config: routine %p was given new config={%d, %d, %d, "
             "%d}.\n",
             routine_id, ret_config.num_threads, ret_config.num_tasks,
-            ret_config.node_mask, static_cast<int>(ret_config.task_affinity)));
+            ret_config.node_mask, static_cast<int>(ret_config.steal_policy)));
 
   return ret_config;
 }
