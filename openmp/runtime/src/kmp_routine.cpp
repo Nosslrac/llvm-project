@@ -316,7 +316,14 @@ kmp_uint16 Routine::getNUMAMask() {
   const auto SOCKET_SIZE = Topo::numa_topology.get_num_cores() /
                            Topo::numa_topology.get_num_socket();
   const auto NUMA_SIZE = Topo::numa_topology.get_numa_size();
-  const auto &stats = m_execution_history.at(m_1stfastest);
+  auto elem = std::find_if(m_execution_history.begin(),
+                           m_execution_history.end(), [](const auto &kv) {
+                             return kv.first.num_threads ==
+                                    Topo::numa_topology.get_num_cores();
+                           });
+  KMP_DEBUG_ASSERT(elem != m_execution_history.end());
+
+  const auto &stats = elem->second;
   auto min_iter =
       std::min_element(stats.begin(), stats.end(),
                        [](const routine_stats &lhs, const routine_stats &rhs) {
@@ -325,7 +332,7 @@ kmp_uint16 Routine::getNUMAMask() {
   auto index = std::distance(stats.begin(), min_iter);
   KA_TRACE(1, ("Routine::getNUMAMask(): Fastest index = %d\n", index));
 
-  auto numaCount = m_1stfastest.num_threads / NUMA_SIZE - 1;
+  auto numaCount = m_current_config.num_threads / NUMA_SIZE - 1;
   kmp_uint16 mask = static_cast<kmp_uint16>(1U << index);
   index = index / SOCKET_SIZE * SOCKET_SIZE;
   while (numaCount > 0) {
