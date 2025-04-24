@@ -546,8 +546,8 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
 
   // Find tasking deque specific to encountering thread
   // thread_data = &task_team->tt.tt_threads_data[tid];
-  thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata,
-                                               (kmp_int64)task->routine);
+  thread_data = Schedule::__kmp_select_thread_data_queue(
+      task_team, taskdata, (kmp_int64)task->routine);
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
   // we don't need it either because we have initialized the dequeue for hidden
@@ -693,7 +693,8 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
   thread->th.routine_id = (kmp_int64)task->routine;
 
 #ifdef PERF_COUNTERS
-  if (taskdata->td_affin_mask != StealPolicy::TASK_GENERATION) {
+  if (taskdata->td_affin_mask !=
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
     Perf::__kmp_start_counters(thread);
   }
 #endif
@@ -5261,7 +5262,11 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
                             sizeof(__taskloop_params_t), &__kmp_taskloop_task);
 
   kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
-  Schedule::__kmp_set_any_affinity(new_taskdata);
+  // ODIN
+  // Task generating tasks have are allowed to execute on any processor
+  new_taskdata->td_affin_mask =
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
+  // ODIN END
   // restore current task
   thread->th.th_current_task = current_task;
   __taskloop_params_t *p = (__taskloop_params_t *)new_task->shareds;
@@ -5403,7 +5408,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
         KMP_TASKING_ENABLED(thread->th.th_task_team)) {
       // If tasking isn't enabled the numa head will be initialized in
       // __kmp_enable_tasking
-      Schedule::__kmp_reset_head_all(thread->th.th_task_team);
+      Schedule::__kmp_set_head_all(thread->th.th_task_team);
     }
     grainsize = next_config.num_tasks;
 

@@ -19,7 +19,7 @@ else()
 endif()
 
 # ODIN
-# add_definitions(-DPERF_COUNTERS)
+add_definitions(-DPERF_COUNTERS)
 #add_definitions(-DAMD_PERF)
 add_definitions(-DMOLDABILITY)
 add_definitions(-DLOADBALANCE)

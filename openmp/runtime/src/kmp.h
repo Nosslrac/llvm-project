@@ -2778,7 +2778,7 @@ struct kmp_taskdata { /* aligned during dynamic allocation       */
   kmp_int32 td_task_id; /* id, assigned by debugger                */
   kmp_tasking_flags_t td_flags; /* task flags                              */
   kmp_uint16 td_affin_mask; /* Steal policy for task 1 bit per NUMA node */
-  kmp_uint8 td_numa_place; /* Distribution place for task */
+  kmp_uint8 td_task_place_tid; /* Distribution place for task */
   kmp_team_t *td_team; /* team for this task                      */
   kmp_info_p *td_alloc_thread; /* thread that allocated data structures   */
   /* Currently not used except for perhaps IDB */
