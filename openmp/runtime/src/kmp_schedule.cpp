@@ -3,6 +3,7 @@
 #include "hwloc.h"
 #include "kmp.h"
 #include "kmp_debug.h"
+#include <bitset>
 #include <unordered_map>
 #include "kmp_os.h"
 #include "kmp_perf.h"
@@ -29,6 +30,14 @@ inline kmp_uint8 bitScan(kmp_uint64 mask) {
 #else
   return 0; // Impl needed
 #endif
+}
+
+inline kmp_uint8 findBit(kmp_uint16 nodeMask, const kmp_uint8 count) {
+  for (auto i = count; i > 0; i--) {
+    nodeMask &= nodeMask - 1;
+  }
+  KMP_DEBUG_ASSERT(nodeMask > 0);
+  return bitScan(nodeMask);
 }
 
 inline kmp_uint64 min(const kmp_uint64 a, const kmp_uint64 b) {
@@ -139,13 +148,11 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
   routine_config config = routine_map.at(routine_id).getCurrentConfig();
   const auto numNuma = bitCount(config.node_mask);
-  const auto firstNode = bitScan(config.node_mask);
 #else
   const auto numNuma = Topo::numa_topology.get_num_numa();
-  const auto firstNode = 0;
 #endif
   KMP_DEBUG_ASSERT(numNuma);
-  const kmp_uint8 numaNodeSize = static_cast<kmp_uint8>(numaCores) / numNuma;
+  const kmp_uint8 numaNodeSize = Topo::numa_topology.get_numa_size();
   KMP_DEBUG_ASSERT(numaNodeSize);
 
   // When single thread is executing
@@ -160,21 +167,28 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
 
   const auto midRange = (lb + ub) / 2;
   const auto bucketSize = max(glob_ub / numNuma, numaNodeSize);
-  const auto numaId = static_cast<kmp_uint8>(
-      min((midRange / bucketSize) + firstNode, numNuma - 1));
-  KMP_DEBUG_ASSERT(numaId < numNuma);
+  const auto bucketId =
+      static_cast<kmp_uint8>(min((midRange / bucketSize), numNuma - 1));
+  KMP_DEBUG_ASSERT(bucketId < numNuma);
+#ifdef MOLDABILITY
+  const auto numaId = findBit(config.node_mask, bucketId);
+#else
+  const auto numaId = bucketId;
+#endif
 
   taskdata->td_affin_mask = static_cast<kmp_uint16>(1U << numaId);
   taskdata->td_task_place_tid = numaId * numaNodeSize;
 
-  KA_TRACE(
-      3,
-      ("%s:%d: __kmp_set_task_affinity: for routine %p: Nthreads=%d, Nnuma=%d, "
-       "numaid=%d,"
-       "bucketSize=%lu "
-       "MidIter#%d => Affin_mask=%lu.\n",
-       __FILE_NAME__, __LINE__, routine_id, nthreads, numNuma, numaId,
-       bucketSize, midRange, taskdata->td_affin_mask));
+  KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: for routine %p: Nthreads=%d, "
+               "Nnuma=%d, "
+               "numaid=%d,"
+               "bucketSize=%lu "
+               "MidIter#%d => Affin_mask=0b%s.\n"
+               "Task_place=%d\n",
+               __FILE_NAME__, __LINE__, routine_id, nthreads, numNuma, numaId,
+               bucketSize, midRange,
+               std::bitset<16>(taskdata->td_affin_mask).to_string().c_str(),
+               taskdata->td_task_place_tid));
 }
 
 ///

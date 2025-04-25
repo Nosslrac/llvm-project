@@ -3077,7 +3077,7 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   kmp_int64 routine_id;
 
   // Schedule parameters
-  kmp_int16 steal_mask;
+  kmp_uint16 steal_mask;
   kmp_uint32 numa_head_start; // First task index for current taskloop
 
 #if KMP_AFFINITY_SUPPORTED
