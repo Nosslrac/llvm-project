@@ -5400,6 +5400,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     // (Selects default config if no history is available)
     thread->th.routine_id = (kmp_int64)task->routine;
     next_config = Schedule::__kmp_select_config(thread);
+    Topo::numa_topology.showTopo();
     if (thread->th.th_task_team &&
         KMP_TASKING_ENABLED(thread->th.th_task_team)) {
       // If tasking isn't enabled the numa head will be initialized in

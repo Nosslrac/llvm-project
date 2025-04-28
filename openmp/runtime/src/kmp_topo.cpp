@@ -41,3 +41,12 @@ NumaTopology Topo::__kmp_read_topology() {
                       static_cast<kmp_uint32>(ncores),
                       static_cast<kmp_uint32>(nsockets));
 }
+
+void NumaTopology::showTopo() const {
+  KA_TRACE(1, ("NumaTopology::showTopo: System properties:\n"
+               "    - Number of numa nodes: %u\n"
+               "    - Numa size: %u\n"
+               "    - Number of cores: %u\n"
+               "    - Number of sockets: %u\n",
+               m_num_numa, m_numa_size, m_num_cores, m_num_sockets));
+}

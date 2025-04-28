@@ -18,11 +18,12 @@ public:
                         kmp_uint32 num_sockets)
       : m_num_numa(num_numa), m_num_cores(num_cores),
         m_num_sockets(num_sockets),
-        m_numa_size(static_cast<kmp_uint8>(num_cores / num_numa)) {};
+        m_numa_size(static_cast<kmp_uint8>(num_cores / num_numa)){};
   kmp_uint32 get_num_numa() const { return m_num_numa; }
   kmp_uint32 get_num_cores() const { return m_num_cores; }
   kmp_uint32 get_num_socket() const { return m_num_sockets; }
   kmp_uint8 get_numa_size() const { return m_numa_size; }
+  void showTopo() const;
 
 private:
   kmp_uint32 m_num_numa;
