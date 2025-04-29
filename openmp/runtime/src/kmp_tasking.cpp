@@ -11,14 +11,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "kmp.h"
-#include "kmp_debug.h"
 #include "kmp_i18n.h"
 #include "kmp_itt.h"
-#include "kmp_os.h"
 #include "kmp_stats.h"
-#include "kmp_topo.h"
 #include "kmp_wait_release.h"
 #include "kmp_taskdeps.h"
+
+// ODIN
+#include "kmp_topo.h"
 #include "kmp_schedule.h"
 #include "kmp_perf.h"
 #include "kmp_routine.h"
@@ -28,6 +28,7 @@
 #ifdef PERF_COUNTERS
 #include "kmp_perf.h"
 #endif
+// ODIN END
 
 #if OMPT_SUPPORT
 #include "ompt-specific.h"
@@ -504,7 +505,6 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   }
 
   kmp_task_team_t *task_team = thread->th.th_task_team;
-  // kmp_int32 tid = __kmp_tid_from_gtid(gtid);
   kmp_thread_data_t *thread_data;
 
   KA_TRACE(20,
@@ -545,9 +545,10 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
   }
 
   // Find tasking deque specific to encountering thread
-  // thread_data = &task_team->tt.tt_threads_data[tid];
-  thread_data = Schedule::__kmp_optimal_thread(thread, task_team, taskdata,
-                                               (kmp_int64)task->routine);
+  // ODIN
+  thread_data = Schedule::__kmp_select_thread_data_queue(
+      task_team, taskdata, (kmp_int64)task->routine);
+  // ODIN END
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
   // we don't need it either because we have initialized the dequeue for hidden
@@ -690,16 +691,22 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
                __LINE__, gtid));
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread = __kmp_threads[gtid];
+
+  // ODIN
   thread->th.routine_id = (kmp_int64)task->routine;
 
 #ifdef PERF_COUNTERS
-  Perf::__kmp_start_counters(thread);
+  if (taskdata->td_affin_mask !=
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
+    Perf::__kmp_start_counters(thread);
+  }
 #endif
 
   const int cpu = sched_getcpu();
   KA_TRACE(4, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
                "Routine = %p\n",
                __FILE_NAME__, __LINE__, gtid, cpu, taskdata, task->routine));
+  // ODIN END
 
   KMP_DEBUG_ASSERT(taskdata->td_flags.tasktype == TASK_EXPLICIT);
 
@@ -1065,12 +1072,15 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_task_team_t *task_team =
       thread->th.th_task_team; // might be NULL for serial teams...
-  KA_TRACE(5, ("__kmp_task_finish(enter): T#%d\n", gtid));
-
+  // ODIN
+  if (taskdata->td_affin_mask !=
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
+    __kmp_read_system_time(&thread->th.task_finish_time);
 #ifdef PERF_COUNTERS
-  Perf::__kmp_stop_counters(thread, gtid, (kmp_int64)taskdata);
-  __kmp_read_system_time(&thread->th.task_finish_time);
+    Perf::__kmp_stop_counters(thread, gtid, (kmp_int64)taskdata);
 #endif
+  }
+  // ODIN END
 
 #if OMPX_TASKGRAPH
   // to avoid seg fault when we need to access taskdata->td_flags after free
@@ -1280,10 +1290,6 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   KA_TRACE(
       10, ("__kmp_task_finish(exit): T#%d finished task %p, resuming task %p\n",
            gtid, taskdata, resumed_task));
-  KA_TRACE(
-      3, ("%s:%d: __kmp_task_finish: T#%d finished task %p, resuming task %p\n",
-          __FILE_NAME__, __LINE__, gtid, taskdata, resumed_task));
-
   return;
 }
 
@@ -1795,8 +1801,6 @@ __kmp_invoke_task(kmp_int32 gtid, kmp_task_t *task,
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread;
   int discard = 0 /* false */;
-  KA_TRACE(3, ("%s:%d: __kmp_invoke_task: T#%d invoking task=%p\n",
-               __FILE_NAME__, __LINE__, gtid, taskdata));
   KA_TRACE(
       30, ("__kmp_invoke_task(enter): T#%d invoking task %p, current_task=%p\n",
            gtid, taskdata, current_task));
@@ -2068,9 +2072,6 @@ kmp_int32 __kmpc_omp_task_parts(ident_t *loc_ref, kmp_int32 gtid,
 kmp_int32 __kmp_omp_task(kmp_int32 gtid, kmp_task_t *new_task,
                          bool serialize_immediate) {
   kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
-  KA_TRACE(3, ("%s:%d: __kmp_omp_task: T#%d schedule a non-thread-switchable "
-               "task for execution %p\n",
-               __FILE_NAME__, __LINE__, gtid, new_taskdata));
 #if OMPX_TASKGRAPH
   if (new_taskdata->is_taskgraph &&
       __kmp_tdg_is_recording(new_taskdata->tdg->tdg_status)) {
@@ -2976,7 +2977,7 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
   }
 #endif
 
-  KA_TRACE(5, ("__kmpc_end_taskgroup(enter): T#%d loc=%p\n", gtid, loc));
+  KA_TRACE(10, ("__kmpc_end_taskgroup(enter): T#%d loc=%p\n", gtid, loc));
   KMP_DEBUG_ASSERT(taskgroup != NULL);
   KMP_SET_THREAD_STATE_BLOCK(TASKGROUP);
 
@@ -3086,18 +3087,10 @@ void __kmpc_end_taskgroup(ident_t *loc, int gtid) {
 
   KA_TRACE(10, ("__kmpc_end_taskgroup(exit): T#%d task %p finished waiting\n",
                 gtid, taskdata));
-
-  routine_stats_nodes stats(Topo::numa_topology.get_num_numa());
-
-#ifdef PERF_COUNTERS
-  const auto taskloop_start_time = Schedule::__kmp_get_routine_timer();
-  Perf::__kmp_summarize_taskloop_numa(thread->th.th_team, taskloop_start_time);
-  Perf::__kmp_get_taskloop_stats(thread->th.th_team, &stats,
-                                 taskloop_start_time);
-  Perf::__kmp_reset_taskloop_stats(thread->th.th_team);
-#endif
-
-  Schedule::__kmp_store_routine_stats(thread->th.routine_id, &stats);
+  // ODIN
+  Schedule::__kmp_store_routine_stats(thread->th.th_team,
+                                      thread->th.routine_id);
+  // ODIN END
 
 #if OMPT_SUPPORT && OMPT_OPTIONAL
   if (UNLIKELY(ompt_enabled.ompt_callback_sync_region)) {
@@ -3337,6 +3330,8 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
   current = __kmp_threads[gtid]->th.th_current_task;
   taskdata = victim_td->td.td_deque[victim_td->td.td_deque_head];
 
+  // ODIN
+  // Block stealing if the policy does not allow it.
   if ((__kmp_threads[gtid]->th.steal_mask & taskdata->td_affin_mask) == 0) {
     __kmp_release_bootstrap_lock(&victim_td->td.td_deque_lock);
     KA_TRACE(5, ("__kmp_steal_task: T#%d(tid=%d): steal not allowed from "
@@ -3346,6 +3341,7 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
                  __kmp_tid_from_gtid(__kmp_gtid_from_thread(victim_thr))));
     return NULL;
   }
+  // ODIN END
 
   if (__kmp_task_is_allowed(gtid, is_constrained, taskdata, current)) {
     // Bump head pointer and Wrap.
@@ -3420,11 +3416,10 @@ static kmp_task_t *__kmp_steal_task(kmp_int32 victim_tid, kmp_int32 gtid,
             gtid, taskdata, __kmp_gtid_from_thread(victim_thr), task_team,
             ntasks, victim_td->td.td_deque_head, victim_td->td.td_deque_tail));
   task = KMP_TASKDATA_TO_TASK(taskdata);
-  KA_TRACE(3,
-           ("%s:%d: __kmp_steal_task: T#%d stole task from T#%d: "
-            "deque size=%d task=%p\n",
-            __FILE_NAME__, __LINE__, gtid, __kmp_gtid_from_thread(victim_thr),
-            TASK_DEQUE_SIZE(victim_td->td), taskdata));
+  KA_TRACE(3, ("%s:%d: __kmp_steal_task: T#%d stole task from T#%d: "
+               "deque size=%d task=%p\n",
+               __FILE_NAME__, __LINE__, __kmp_tid_from_gtid(gtid), victim_td,
+               TASK_DEQUE_SIZE(victim_td->td), taskdata));
   return task;
 }
 
@@ -3499,7 +3494,10 @@ static inline int __kmp_execute_tasks_template(
             // threads, and only return if we tried to steal from every thread,
             // and failed.  Arch says that's not such a great idea.
             victim_tid = __kmp_get_random(thread) % (nthreads - 1);
+            // ODIN
+            // Tasks are only placed on the base core of each NUMA node
             victim_tid = Schedule::__kmp_get_numa_base(victim_tid);
+            // ODIN END
             if (victim_tid >= tid) {
               ++victim_tid; // Adjusts random distribution to exclude self
             }
@@ -3778,7 +3776,9 @@ static void __kmp_enable_tasking(kmp_task_team_t *task_team,
     for (i = 0; i < nthreads; i++) {
       void *sleep_loc;
       kmp_info_t *thread = threads_data[i].td.td_thr;
+      // ODIN
       Schedule::__kmp_set_start_head(task_team, thread, i);
+      // ODIN END
 
       if (i == this_thr->th.th_info.ds.ds_tid) {
         continue;
@@ -4984,17 +4984,10 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
                              (last_chunk < 0 ? last_chunk : extras));
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
-  KA_TRACE(1, ("__kmp_taskloop_linear: T#%d: %lld tasks, grainsize %lld, "
+  KA_TRACE(3, ("__kmp_taskloop_linear: T#%d: %lld tasks, grainsize %lld, "
                "extras %lld, last_chunk %lld, i=%lld,%lld(%d)%lld, dup %p\n",
                gtid, num_tasks, grainsize, extras, last_chunk, lower, upper,
                ub_glob, st, task_dup));
-
-  // Read system time for calculating schdeuling overhead
-  // (used in bothom of this function)
-  kmp_real64 current_time = 0;
-  __kmp_read_system_time(&current_time);
-  KA_TRACE(2, ("__kmp_taskloop_linear: For loop: T#%d: %lu tasks\n", gtid,
-               num_tasks));
 
   // Launch num_tasks tasks, assign grainsize iterations each task
   for (i = 0; i < num_tasks; ++i) {
@@ -5052,9 +5045,11 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
               gtid, i, next_task, lower, upper, st,
               next_task_bounds.get_lower_offset(),
               next_task_bounds.get_upper_offset()));
+    // ODIN
     // Set affinity mask for taskdata based on taskloop_linear config
     Schedule::__kmp_set_task_affinity(
         thread, next_taskdata, (kmp_int64)task->routine, lower, upper, ub_glob);
+    // ODIN END
 
 #if OMPT_SUPPORT
     __kmp_omp_taskloop_task(NULL, gtid, next_task,
@@ -5070,15 +5065,6 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
 #endif
     lower = upper + st; // adjust lower bound for the next iteration
   }
-
-  kmp_real64 schedule_finish = 0;
-  __kmp_read_system_time(&schedule_finish);
-  schedule_finish = schedule_finish - current_time;
-
-  KA_TRACE(2, ("%s:%d: __kmp_taskloop_linear: Elapsed scheduling overhead"
-               " time=%lf for routine %p\n",
-               __FILE_NAME__, __LINE__, schedule_finish,
-               (kmp_int64)task->routine));
 
   // free the pattern task and exit
   __kmp_task_start(gtid, task, current_task); // make internal bookkeeping
@@ -5265,8 +5251,12 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
       __kmpc_omp_task_alloc(loc, gtid, 1, 3 * sizeof(void *),
                             sizeof(__taskloop_params_t), &__kmp_taskloop_task);
 
+  // ODIN
+  // Task generating tasks have are allowed to execute on any processor
   kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
-  Schedule::__kmp_set_any_affinity(new_taskdata);
+  new_taskdata->td_affin_mask =
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
+  // ODIN END
   // restore current task
   thread->th.th_current_task = current_task;
   __taskloop_params_t *p = (__taskloop_params_t *)new_task->shareds;
@@ -5348,7 +5338,6 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
   kmp_uint64 num_tasks_min = __kmp_taskloop_min_tasks;
   kmp_info_t *thread = __kmp_threads[gtid];
   kmp_taskdata_t *current_task = thread->th.th_current_task;
-  routine_config next_config;
 
   KA_TRACE(20, ("__kmp_taskloop: T#%d, task %p, lb %lld, ub %lld, st %lld, "
                 "grain %llu(%d, %d), dup %p\n",
@@ -5393,6 +5382,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
                gtid, taskdata, lower, upper, st, grainsize, sched, modifier,
                task_dup));
 
+  routine_config next_config;
   // compute num_tasks/grainsize based on the input provided
   switch (sched) {
   case 0: // no schedule clause specified, we can choose the default
@@ -5400,17 +5390,19 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     // let's try to schedule (team_size*10) tasks
     grainsize = thread->th.th_team_nproc * 10;
 
+    // ODIN
     // Select config for next taskloop execution based on execution history
     // (Selects default config if no history is available)
     thread->th.routine_id = (kmp_int64)task->routine;
-    next_config = Schedule::__kmp_select_config(thread, grainsize);
+    next_config = Schedule::__kmp_select_config(thread);
     if (thread->th.th_task_team &&
         KMP_TASKING_ENABLED(thread->th.th_task_team)) {
       // If tasking isn't enabled the numa head will be initialized in
       // __kmp_enable_tasking
-      Schedule::__kmp_reset_head_all(thread->th.th_task_team);
+      Schedule::__kmp_set_head_all(thread->th.th_task_team);
     }
     grainsize = next_config.num_tasks;
+    // ODIN END
 
     KMP_FALLTHROUGH();
   case 2: // num_tasks provided
@@ -5451,11 +5443,11 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
   KMP_DEBUG_ASSERT(num_tasks > extras);
   KMP_DEBUG_ASSERT(num_tasks > 0);
 
-  // TODO_ME: REMOVE
-  Schedule::__kmp_show_affinity(thread);
+  // ODIN
   thread->th.th_team->t.t_proc_bind = proc_bind_true;
 
   Schedule::__kmp_start_routine_timer();
+  // ODIN END
 
   // =========================================================================
 

@@ -4937,8 +4937,10 @@ void __kmp_affinity_initialize(kmp_affinity_t &affinity) {
   __kmp_aux_affinity_initialize(affinity);
   if (disabled)
     affinity.type = affinity_disabled;
+  // ODIN
   Schedule::__kmp_set_numa_affinity(&affinity,
                                     __kmp_topology->get_num_hw_threads());
+  // ODIN END
 }
 
 void __kmp_affinity_uninitialize(void) {
@@ -5044,11 +5046,10 @@ void __kmp_affinity_set_init_mask(int gtid, int isa_root) {
   else
     affinity = &__kmp_affinity;
 
-  // Mask is unused will be set by __kmp_set_per_thread_affinity
-  __kmp_select_mask_by_gtid(gtid, affinity, &i, &mask);
-  KMP_DEBUG_ASSERT(mask);
-  Schedule::__kmp_set_per_thread_affinity(th, gtid, i);
+  // ODIN
+  Schedule::__kmp_set_per_thread_affinity(th, gtid);
   return;
+  // ODIN END
 
   if (KMP_AFFINITY_NON_PROC_BIND || is_hidden_helper) {
     if ((affinity->type == affinity_none) ||

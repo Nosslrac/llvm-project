@@ -16,18 +16,19 @@ enum class StealPolicy : kmp_uint16 {
   NUMA = 0,
   SOCKET = 1,
   FULL = (1U << 15),
+  TASK_GENERATION = (1U << 16) - 1
 };
 
 struct routine_config {
-  kmp_int64 num_threads = -1;
-  kmp_int64 num_tasks = -1;
-  kmp_uint16 node_mask = 0;
-  StealPolicy task_affinity = StealPolicy::NUMA;
+  kmp_int64 num_threads;
+  kmp_int64 num_tasks;
+  kmp_uint16 node_mask;
+  StealPolicy steal_policy;
 };
 
 struct routine_stats {
-  kmp_real64 execution_time = -1;
-  kmp_real64 IPC = -1;
+  kmp_real64 execution_time;
+  kmp_real64 IPC;
 };
 
 using routine_stats_nodes = std::vector<routine_stats>;
@@ -37,7 +38,7 @@ struct routine_config_hash {
     std::size_t h1 = std::hash<kmp_int64>{}(rc.num_threads);
     std::size_t h2 = std::hash<kmp_int64>{}(rc.num_tasks);
     std::size_t h3 = std::hash<kmp_uint16>{}(rc.node_mask);
-    std::size_t h4 = std::hash<int>{}(static_cast<int>(rc.task_affinity));
+    std::size_t h4 = std::hash<int>{}(static_cast<int>(rc.steal_policy));
     return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3);
   }
 };
@@ -45,31 +46,32 @@ struct routine_config_hash {
 class Routine {
 
 private:
-  kmp_int64 routine_id;
+  kmp_int64 m_routine_id;
   std::unordered_map<routine_config, routine_stats_nodes, routine_config_hash>
-      execution_history;
-  routine_config current_config;
-  bool minima_found;
-  bool initial_iteration;
+      m_execution_history;
+  routine_config m_current_config;
+  routine_config m_1stfastest;
+  routine_config m_2ndfastest;
+  bool m_search_finished;
+  kmp_uint32 m_iteration_count;
 
-  int NUM_NUMANODES;
-  int NUMANODE_SIZE;
-  int NUM_SOCKETS;
-  int SOCKET_SIZE; // Number of NUMA nodes
-  int MOLDABILITY_GRANULARITY;
+  kmp_uint32 MOLDABILITY_GRANULARITY;
 
-  routine_config getFastestConfig();
-  kmp_real64 calcSlowestNUMAExec(routine_config);
-  kmp_real64 calcFastestNUMAExec(routine_config);
-  kmp_real64 calcAverageNUMAExec(routine_config);
-  kmp_uint16 getNUMAMask(kmp_uint64);
-  StealPolicy checkLoadBalance(routine_config);
+  routine_config getInitialConfig(kmp_uint32 nthreads);
+  void initBinarySearch();
+  void binarySearch();
+
+  kmp_real64 calcSlowestNUMAExec(const routine_config &config);
+  kmp_uint16 getNUMAMask();
+  StealPolicy checkLoadBalance();
+
+  inline bool isXFasterThanY(const routine_config &X, const routine_config &Y) {
+    return calcSlowestNUMAExec(X) < calcSlowestNUMAExec(Y);
+  }
 
 public:
-  Routine(kmp_int64);
-  routine_config getCurrentConfig() const;
-  routine_config getDefaultConfig(kmp_info *, kmp_int64);
-  routine_config getInterTaskloopConfig(kmp_int8);
-  routine_config getNextConfig();
-  void storeExecution(routine_stats_nodes);
+  explicit Routine(kmp_int64 routine_id, kmp_uint32 nthreads);
+  const routine_config &getCurrentConfig() const;
+  const routine_config &getNextConfig();
+  void storeExecution(routine_stats_nodes stats);
 };

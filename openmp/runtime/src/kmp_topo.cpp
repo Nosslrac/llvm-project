@@ -2,6 +2,7 @@
 
 #include "hwloc.h"
 #include "kmp.h"
+#include "kmp_debug.h"
 
 ///////////////////////////////////////////////
 ///               Topology section          ///
@@ -14,11 +15,11 @@ NumaTopology Topo::__kmp_read_topology() {
   // Load topology
   if (hwloc_topology_init(&topology) == -1) {
     KMP_FATAL(MsgExiting, "Hardware topology not read");
-    return NumaTopology(0, 0, 0, 0);
+    return NumaTopology(0, 0, 0);
   }
   if (hwloc_topology_load(topology) == -1) {
     KMP_FATAL(MsgExiting, "Hardware topology not read");
-    return NumaTopology(0, 0, 0, 0);
+    return NumaTopology(0, 0, 0);
   }
 
   // Get relevant intro
@@ -32,9 +33,11 @@ NumaTopology Topo::__kmp_read_topology() {
                "total cores = %u, sockets = %u, base_steal_bits = %lu\n",
                nNumaNodes, ncores, nsockets, base_steal_bits));
 
-  // Todo: generate stealmasks based on policy
+  KMP_ASSERT(nNumaNodes > 0);
+  KMP_ASSERT(ncores > 0);
+  KMP_ASSERT(nsockets > 0);
 
   return NumaTopology(static_cast<kmp_uint32>(nNumaNodes),
                       static_cast<kmp_uint32>(ncores),
-                      static_cast<kmp_uint32>(nsockets), base_steal_bits);
+                      static_cast<kmp_uint32>(nsockets));
 }

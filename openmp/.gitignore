@@ -42,4 +42,3 @@ runtime/exports
 
 # Nested build directory
 /build
-compile_commands.json

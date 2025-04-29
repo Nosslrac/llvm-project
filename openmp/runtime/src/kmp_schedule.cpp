@@ -5,25 +5,27 @@
 #include "kmp_debug.h"
 #include <unordered_map>
 #include "kmp_os.h"
+#include "kmp_perf.h"
 #include "kmp_routine.h"
+#include "kmp_topo.h"
 
 #include <immintrin.h>
 
 namespace {
 
-constexpr kmp_uint32 LOAD_STRICT = 3;
+constexpr kmp_uint32 NUM_LOAD_STRICT_TASK = 3;
 
-inline int bitCount(kmp_uint64 mask) {
+inline kmp_uint8 bitCount(kmp_uint64 mask) {
 #if __has_builtin(__builtin_popcountll)
-  return __builtin_popcountll(mask);
+  return static_cast<kmp_uint8>(__builtin_popcountll(mask));
 #else
   return 0; // Impl needed
 #endif
 }
 
-inline int bitScan(kmp_uint64 mask) {
+inline kmp_uint8 bitScan(kmp_uint64 mask) {
 #if __has_builtin(__builtin_ctzll)
-  return __builtin_ctzll(mask);
+  return static_cast<kmp_uint8>(__builtin_ctzll(mask));
 #else
   return 0; // Impl needed
 #endif
@@ -74,27 +76,13 @@ void __kmp_alloc_task_deque(kmp_thread_data_t *thread_data, int32_t gtid) {
   thread_data->td.td_deque_size = INITIAL_TASK_DEQUE_SIZE;
 }
 
-kmp_int32 __kmp_get_distribution_tid(kmp_taskdata_t *taskdata,
-                                     kmp_uint32 nthreads) {
-  KMP_DEBUG_ASSERT(taskdata);
-
-  // Divide the threads equally accross NUMA nodes
-  const auto numaCores = Topo::numa_topology.get_num_cores();
-  const auto numNuma = Topo::numa_topology.get_num_numa();
-  KMP_DEBUG_ASSERT(numaCores);
-  KMP_DEBUG_ASSERT(numNuma);
-
-  const auto numaSize = numaCores / numNuma;
-  KMP_DEBUG_ASSERT(numaSize);
-  const auto processor = taskdata->td_numa_place * numaSize;
-
-  KMP_DEBUG_ASSERT(processor < nthreads);
-  return static_cast<kmp_int32>(processor);
-}
-
 } // namespace
 
-kmp_int32 Schedule::__kmp_get_numa_base(kmp_int32 victim_tid) {
+///
+/// @brief This function returns the base node of the NUMA node
+/// containing the processor corresponding to tid.
+///
+kmp_int32 Schedule::__kmp_get_numa_base(kmp_int32 tid) {
   const auto numaCores = Topo::numa_topology.get_num_cores();
   const auto numNuma = Topo::numa_topology.get_num_numa();
   KMP_DEBUG_ASSERT(numaCores);
@@ -102,41 +90,39 @@ kmp_int32 Schedule::__kmp_get_numa_base(kmp_int32 victim_tid) {
 
   const auto numaSize = numaCores / numNuma;
   KMP_DEBUG_ASSERT(numaSize);
-  return static_cast<kmp_int32>((victim_tid / numaSize) * numaSize);
+  return static_cast<kmp_int32>((tid / numaSize) * numaSize);
 }
 
-kmp_thread_data_t *Schedule::__kmp_optimal_thread(kmp_info *master_thread,
-                                                  kmp_task_team *task_team,
-                                                  kmp_taskdata_t *taskdata,
-                                                  kmp_int64 routine_id) {
-
-  KMP_DEBUG_ASSERT(taskdata);
+///
+/// @brief This function selects the thread_data queue to put the
+/// taskdata on based on td_task_place_tid (calculated in
+/// __kmp_set_task_affinity). It might update the affinity mask of the task to
+/// enable load balancing.
+///
+kmp_thread_data_t *Schedule::__kmp_select_thread_data_queue(
+    kmp_task_team *task_team, kmp_taskdata_t *taskdata, kmp_int64 routine_id) {
 
   const auto nthreads = task_team->tt.tt_nproc;
-
-  kmp_int32 base_numa_tid = __kmp_get_distribution_tid(
-      taskdata, nthreads); // Get primary thread from NUMA node
+  KMP_DEBUG_ASSERT(taskdata);
+  KMP_DEBUG_ASSERT(taskdata->td_task_place_tid < nthreads);
 
   kmp_thread_data_t *thread_data =
-      &task_team->tt.tt_threads_data[base_numa_tid];
+      &task_team->tt.tt_threads_data[taskdata->td_task_place_tid];
   kmp_info_t *base_numa_thread = thread_data->td.td_thr;
   taskdata->td_affin_mask |= Schedule::__kmp_get_load_balance_mask(
       base_numa_thread, thread_data, routine_id);
 
   KA_TRACE(3, ("%s:%d: __kmp_optimal_thread: Base NUMA thread tid=%d\n ",
-               __FILE_NAME__, __LINE__, base_numa_tid));
+               __FILE_NAME__, __LINE__, taskdata->td_task_place_tid));
   return thread_data;
 }
 
-//
-void Schedule::__kmp_set_any_affinity(kmp_taskdata_t *taskdata) {
-  KMP_DEBUG_ASSERT(taskdata);
-  taskdata->td_affin_mask = static_cast<kmp_uint16>(StealPolicy::FULL);
-  KA_TRACE(3, ("__kmp_set_any_affinity: Setting any affinity child task %p of "
-               "parent %p\n",
-               taskdata, taskdata->td_parent));
-}
-
+///
+/// @brief This function sets up the affinity of taskloop tasks.
+/// The affinity is based on the iteration range of the tasks and
+/// decides which NUMA node this task is put on.
+/// @note The affinity mask of the task (td_affin_mask) will be updated
+/// in __kmp_select_thread_data_queue() and might be tagged for load balancing.
 void Schedule::__kmp_set_task_affinity(kmp_info *thread,
                                        kmp_taskdata_t *taskdata,
                                        kmp_int64 routine_id, kmp_uint64 lb,
@@ -159,15 +145,15 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   const auto firstNode = 0;
 #endif
   KMP_DEBUG_ASSERT(numNuma);
-
-  const auto numaNodeSize = numaCores / numNuma;
+  const kmp_uint8 numaNodeSize = static_cast<kmp_uint8>(numaCores) / numNuma;
   KMP_DEBUG_ASSERT(numaNodeSize);
 
   // When single thread is executing
   if (nthreads == 1) {
-    taskdata->td_numa_place = static_cast<kmp_uint8>(__kmp_tid_from_gtid(
-                                  __kmp_gtid_from_thread(thread))) /
-                              numaNodeSize;
+    taskdata->td_task_place_tid = (static_cast<kmp_uint8>(__kmp_tid_from_gtid(
+                                       __kmp_gtid_from_thread(thread))) /
+                                   numaNodeSize) *
+                                  numaNodeSize;
     taskdata->td_affin_mask = static_cast<kmp_uint16>(StealPolicy::FULL);
     return;
   }
@@ -179,7 +165,7 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   KMP_DEBUG_ASSERT(numaId < numNuma);
 
   taskdata->td_affin_mask = static_cast<kmp_uint16>(1U << numaId);
-  taskdata->td_numa_place = numaId;
+  taskdata->td_task_place_tid = numaId * numaNodeSize;
 
   KA_TRACE(
       3,
@@ -191,13 +177,21 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
        bucketSize, midRange, taskdata->td_affin_mask));
 }
 
-void Schedule::__kmp_reset_head_all(kmp_task_team *task_team) {
+///
+/// @brief Update all thread's numa_head_start to their corresponding NUMA
+/// base's thread_data deque head.
+///
+void Schedule::__kmp_set_head_all(kmp_task_team *task_team) {
   for (auto i = 0; i < task_team->tt.tt_nproc; ++i) {
     kmp_thread_data_t *thread_data = &task_team->tt.tt_threads_data[i];
     Schedule::__kmp_set_start_head(task_team, thread_data->td.td_thr, i);
   }
 }
 
+///
+/// @brief Sets the numa_head_start of the thread. This is used to decide
+/// whether a task will be marked for load balancing later.
+///
 void Schedule::__kmp_set_start_head(kmp_task_team_t *task_team,
                                     kmp_info_t *thread, kmp_int32 tid) {
   const auto numa_base_tid = Schedule::__kmp_get_numa_base(tid);
@@ -210,13 +204,16 @@ void Schedule::__kmp_set_start_head(kmp_task_team_t *task_team,
                thread->th.numa_head_start));
 }
 
+///
+/// @brief Decide if task should be marked for load balancing.
+///
 kmp_uint16 Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
                                                  kmp_thread_data_t *thread_data,
                                                  kmp_int64 routine_id) {
 
   const auto coresPerNuma =
       Topo::numa_topology.get_num_cores() / Topo::numa_topology.get_num_numa();
-  const auto numStrictTasks = coresPerNuma * LOAD_STRICT;
+  const auto numStrictTasks = coresPerNuma * NUM_LOAD_STRICT_TASK;
   // Distance of the current spot in queue in comparison to where queue started
   // this taskloop
   const auto distance =
@@ -231,11 +228,14 @@ kmp_uint16 Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
 #ifdef MOLDABILITY
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
   routine_config config = routine_map.at(routine_id).getCurrentConfig();
-  return static_cast<kmp_uint16>(config.task_affinity);
+  return static_cast<kmp_uint16>(config.steal_policy);
 #endif
   return static_cast<kmp_uint16>(StealPolicy::FULL);
 }
 
+///
+/// @brief Print the current affinity of all threads.
+///
 void Schedule::__kmp_show_affinity(kmp_info *thread) {
   kmp_team_t *team = thread->th.th_team;
   int32_t nthreads = team->t.t_nproc;
@@ -249,12 +249,16 @@ void Schedule::__kmp_show_affinity(kmp_info *thread) {
   }
 }
 
-void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid,
-                                             int place) {
+///
+/// @brief This function performs the logical thread pinning to physical
+/// cores and sets up NUMA specific variables for the thread.
+/// @note This is required for the performance montoring in kmp_perf.cpp
+///
+void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid) {
   kmp_team_t *team = thread->th.th_team;
   int32_t nthreads = team->t.t_nproc;
-  int tid = __kmp_tid_from_gtid(gtid);
-  place = tid; // TODO: Use topology to map threads to specific cores
+  int place = __kmp_tid_from_gtid(gtid);
+
   if (thread->th.th_affin_mask == NULL) {
     KA_TRACE(5, ("Alloc: T#%d\n", gtid));
     KMP_CPU_ALLOC(thread->th.th_affin_mask);
@@ -263,28 +267,28 @@ void Schedule::__kmp_set_per_thread_affinity(kmp_info *thread, int32_t gtid,
     KMP_CPU_ZERO(thread->th.th_affin_mask);
   }
   KMP_CPU_SET(place, thread->th.th_affin_mask);
+
   thread->th.th_current_place = place;
   thread->th.th_new_place = place;
   thread->th.th_last_place = nthreads - 1;
   thread->th.force_affin = 1;
 
-  const auto numaId = tid / (Topo::numa_topology.get_num_cores() /
-                             Topo::numa_topology.get_num_numa());
+  const auto numaId =
+      static_cast<kmp_uint8>(place) / (Topo::numa_topology.get_num_cores() /
+                                       Topo::numa_topology.get_num_numa());
   // This thread is allowed to steal tasks with matching mask
   thread->th.steal_mask =
       (1U << numaId) |
       static_cast<kmp_uint16>(StealPolicy::FULL); // All threads can steal tasks
                                                   // with load balance bit
-
-  __kmp_set_system_affinity(thread->th.th_affin_mask, TRUE);
-  char buf[KMP_AFFIN_MASK_PRINT_LEN];
-  __kmp_affinity_print_mask(buf, KMP_AFFIN_MASK_PRINT_LEN,
-                            thread->th.th_affin_mask);
-  KA_TRACE(5, ("Setting thread affinity: Tid=%d T#%d, Affinity: %s\n", tid,
-               gtid, buf));
 }
 
-// Initialize global affinity object for the main thread and prepare for workers
+///
+/// @brief This function initializes the global affinity object in
+/// OpenMP runtime based on the hardware topology.
+/// @note This does not perform the thread pinning. For that
+/// refer to Schedule::__kmp_set_per_thread_affinity().
+///
 void Schedule::__kmp_set_numa_affinity(kmp_affinity_t *global_affin,
                                        int32_t ncpus) {
   // To make bind_place do something
@@ -312,8 +316,14 @@ void Schedule::__kmp_set_numa_affinity(kmp_affinity_t *global_affin,
             global_affin->num_os_id_masks, global_affin->compact));
 }
 
-void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id,
-                                         routine_stats_nodes *stats) {
+///
+/// @brief Summarize and store the stats for the executed taskloop
+///
+void Schedule::__kmp_store_routine_stats(kmp_team *team, kmp_int64 routine_id) {
+  routine_stats_nodes stats(Topo::numa_topology.get_num_numa());
+
+  const kmp_real64 taskloop_start_time = Schedule::__kmp_get_routine_timer();
+  Perf::__kmp_get_taskloop_stats(team, stats, taskloop_start_time);
 
   // Verify that the routine exists in the map
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
@@ -322,19 +332,23 @@ void Schedule::__kmp_store_routine_stats(kmp_int64 routine_id,
                routine_id));
 
   // Store the execution stats
-  routine_map.at(routine_id).storeExecution(*stats);
+  routine_map.at(routine_id).storeExecution(stats);
 }
 
-routine_config Schedule::__kmp_select_config(kmp_info *thread,
-                                             kmp_uint64 num_tasks) {
+///
+/// @brief Get the next config for the taskloop routine that is
+/// about to be executed.
+///
+routine_config Schedule::__kmp_select_config(kmp_info *thread) {
   routine_config ret_config;
   kmp_int64 routine_id = thread->th.routine_id;
 
   // Check if routine has executed before
   // If not, add new routine to map and return default config
   if (routine_map.find(routine_id) == routine_map.end()) {
-    routine_map.emplace(routine_id, Routine(routine_id));
-    ret_config = routine_map.at(routine_id).getDefaultConfig(thread, num_tasks);
+    routine_map.emplace(routine_id,
+                        Routine(routine_id, thread->th.th_team_nproc));
+    ret_config = routine_map.at(routine_id).getCurrentConfig();
 
   } else {
     ret_config = routine_map.at(routine_id).getNextConfig();
@@ -344,13 +358,19 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread,
            ("__kmp_select_config: routine %p was given new config={%d, %d, %d, "
             "%d}.\n",
             routine_id, ret_config.num_threads, ret_config.num_tasks,
-            ret_config.node_mask, static_cast<int>(ret_config.task_affinity)));
+            ret_config.node_mask, static_cast<int>(ret_config.steal_policy)));
 
   return ret_config;
 }
 
+///
+/// @brief Start the timer for the current routine.
+///
 void Schedule::__kmp_start_routine_timer() {
   __kmp_read_system_time(&routine_timer);
 }
 
+///
+/// @brief Gets the current value of the routine timer.
+///
 kmp_real64 Schedule::__kmp_get_routine_timer() { return routine_timer; }
