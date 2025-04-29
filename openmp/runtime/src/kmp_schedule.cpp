@@ -3,6 +3,7 @@
 #include "hwloc.h"
 #include "kmp.h"
 #include "kmp_debug.h"
+#include <bitset>
 #include <unordered_map>
 #include "kmp_os.h"
 #include "kmp_perf.h"
@@ -31,6 +32,14 @@ inline kmp_uint8 bitScan(kmp_uint64 mask) {
 #endif
 }
 
+inline kmp_uint8 findBit(kmp_uint16 nodeMask, const kmp_uint8 count) {
+  for (auto i = count; i > 0; i--) {
+    nodeMask &= nodeMask - 1;
+  }
+  KMP_DEBUG_ASSERT(nodeMask > 0);
+  return bitScan(nodeMask);
+}
+
 inline kmp_uint64 min(const kmp_uint64 a, const kmp_uint64 b) {
   if (a < b) {
     return a;
@@ -52,30 +61,6 @@ std::unordered_map<kmp_int64, Routine>
 kmp_real64 routine_timer;
 
 // Routine stuff end
-
-void __kmp_alloc_task_deque(kmp_thread_data_t *thread_data, int32_t gtid) {
-
-  __kmp_init_bootstrap_lock(&thread_data->td.td_deque_lock);
-  KMP_DEBUG_ASSERT(thread_data->td.td_deque == NULL);
-
-  // Initialize last stolen task field to "none"
-  thread_data->td.td_deque_last_stolen = -1;
-
-  KMP_DEBUG_ASSERT(TCR_4(thread_data->td.td_deque_ntasks) == 0);
-  KMP_DEBUG_ASSERT(thread_data->td.td_deque_head == 0);
-  KMP_DEBUG_ASSERT(thread_data->td.td_deque_tail == 0);
-
-  KA_TRACE(2,
-           ("%s:%d: __kmp_alloc_task_deque: Allocate task space for T#%d.\n ",
-            __FILE_NAME__, __LINE__, gtid));
-  // Allocate space for task deque, and zero the deque
-  // Cannot use __kmp_thread_calloc() because threads not around for
-  // kmp_reap_task_team( ).
-  thread_data->td.td_deque = (kmp_taskdata_t **)__kmp_allocate(
-      INITIAL_TASK_DEQUE_SIZE * sizeof(kmp_taskdata_t *));
-  thread_data->td.td_deque_size = INITIAL_TASK_DEQUE_SIZE;
-}
-
 } // namespace
 
 ///
@@ -109,8 +94,11 @@ kmp_thread_data_t *Schedule::__kmp_select_thread_data_queue(
   kmp_thread_data_t *thread_data =
       &task_team->tt.tt_threads_data[taskdata->td_task_place_tid];
   kmp_info_t *base_numa_thread = thread_data->td.td_thr;
-  taskdata->td_affin_mask |= Schedule::__kmp_get_load_balance_mask(
-      base_numa_thread, thread_data, routine_id);
+  if (taskdata->td_affin_mask !=
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
+    taskdata->td_affin_mask |= Schedule::__kmp_get_load_balance_mask(
+        base_numa_thread, thread_data, routine_id);
+  }
 
   KA_TRACE(3, ("%s:%d: __kmp_optimal_thread: Base NUMA thread tid=%d\n ",
                __FILE_NAME__, __LINE__, taskdata->td_task_place_tid));
@@ -137,15 +125,13 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   KMP_DEBUG_ASSERT(numaCores);
 #ifdef MOLDABILITY
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
-  routine_config config = routine_map.at(routine_id).getCurrentConfig();
+  const routine_config &config = routine_map.at(routine_id).getCurrentConfig();
   const auto numNuma = bitCount(config.node_mask);
-  const auto firstNode = bitScan(config.node_mask);
 #else
   const auto numNuma = Topo::numa_topology.get_num_numa();
-  const auto firstNode = 0;
 #endif
   KMP_DEBUG_ASSERT(numNuma);
-  const kmp_uint8 numaNodeSize = static_cast<kmp_uint8>(numaCores) / numNuma;
+  const kmp_uint8 numaNodeSize = Topo::numa_topology.get_numa_size();
   KMP_DEBUG_ASSERT(numaNodeSize);
 
   // When single thread is executing
@@ -160,21 +146,28 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
 
   const auto midRange = (lb + ub) / 2;
   const auto bucketSize = max(glob_ub / numNuma, numaNodeSize);
-  const auto numaId = static_cast<kmp_uint8>(
-      min((midRange / bucketSize) + firstNode, numNuma - 1));
-  KMP_DEBUG_ASSERT(numaId < numNuma);
+  const auto bucketId =
+      static_cast<kmp_uint8>(min((midRange / bucketSize), numNuma - 1));
+  KMP_DEBUG_ASSERT(bucketId < numNuma);
+#ifdef MOLDABILITY
+  const auto numaId = findBit(config.node_mask, bucketId);
+#else
+  const auto numaId = bucketId;
+#endif
 
   taskdata->td_affin_mask = static_cast<kmp_uint16>(1U << numaId);
   taskdata->td_task_place_tid = numaId * numaNodeSize;
 
-  KA_TRACE(
-      3,
-      ("%s:%d: __kmp_set_task_affinity: for routine %p: Nthreads=%d, Nnuma=%d, "
-       "numaid=%d,"
-       "bucketSize=%lu "
-       "MidIter#%d => Affin_mask=%lu.\n",
-       __FILE_NAME__, __LINE__, routine_id, nthreads, numNuma, numaId,
-       bucketSize, midRange, taskdata->td_affin_mask));
+  KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: for routine %p: Nthreads=%d, "
+               "Nnuma=%d, "
+               "numaid=%d,"
+               "bucketSize=%lu "
+               "MidIter#%d => Affin_mask=0b%s.\n"
+               "Task_place=%d\n",
+               __FILE_NAME__, __LINE__, routine_id, nthreads, numNuma, numaId,
+               bucketSize, midRange,
+               std::bitset<16>(taskdata->td_affin_mask).to_string().c_str(),
+               taskdata->td_task_place_tid));
 }
 
 ///
@@ -226,9 +219,10 @@ kmp_uint16 Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
     return static_cast<kmp_uint16>(StealPolicy::NUMA);
   }
 #ifdef MOLDABILITY
-  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end())
-  routine_config config = routine_map.at(routine_id).getCurrentConfig();
-  return static_cast<kmp_uint16>(config.steal_policy);
+  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
+
+  const routine_config &config = routine_map.at(routine_id).getCurrentConfig();
+  return config.node_mask;
 #endif
   return static_cast<kmp_uint16>(StealPolicy::FULL);
 }

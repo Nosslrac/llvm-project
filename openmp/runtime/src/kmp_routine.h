@@ -62,7 +62,7 @@ private:
   void binarySearch();
 
   kmp_real64 calcSlowestNUMAExec(const routine_config &config);
-  kmp_uint16 getNUMAMask();
+  kmp_uint16 getNUMAMask() const;
   StealPolicy checkLoadBalance();
 
   inline bool isXFasterThanY(const routine_config &X, const routine_config &Y) {

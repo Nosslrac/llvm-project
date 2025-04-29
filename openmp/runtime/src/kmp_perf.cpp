@@ -19,8 +19,9 @@ inline constexpr int perf_id(PerfEvents event) {
   return static_cast<int>(event);
 }
 
-inline double frac(uint64_t numerator, uint64_t denominator) {
-  return static_cast<double>(numerator) / static_cast<double>(denominator);
+inline kmp_real64 frac(uint64_t numerator, uint64_t denominator) {
+  return static_cast<kmp_real64>(numerator) /
+         static_cast<kmp_real64>(denominator);
 }
 
 template <PerfEvents ev> inline constexpr int perf_event() {
@@ -75,11 +76,6 @@ template <PerfEvents ev> void enable_perf_event(kmp_info_t *thread) {
 
   int32_t fd = thread->th.perf_stats[perf_id(ev)];
 
-  // EM: is this Intel specific??
-  if (fd < 3) {
-    return;
-  }
-
   KMP_DEBUG_ASSERT(fd > 2);
 
   ioctl(fd, PERF_EVENT_IOC_RESET);
@@ -104,10 +100,6 @@ template <PerfEvents ev>
 uint64_t stop_perf_event(kmp_info_t *thread, int32_t cpu_id) {
   // Stop event and read
   const int fd = thread->th.perf_stats[perf_id(ev)];
-
-  if (fd < 3) {
-    return 0;
-  }
 
   KMP_DEBUG_ASSERT(fd > 2);
 
@@ -186,7 +178,7 @@ void Perf::__kmp_init_counters(kmp_info_t *thread, int32_t gtid) {
 /// @brief This function enables all perf events for a specific thread.
 ///
 void Perf::__kmp_start_counters(kmp_info_t *thread) {
-  int32_t gtid = __kmp_get_gtid();
+  int32_t gtid = __kmp_gtid_from_thread(thread);
   int32_t cpu_id = sched_getcpu();
 
   KA_TRACE(3, ("%s:%d: __kmp_start_counter(entered): T#%d = CPU#%d.\n ",
@@ -283,31 +275,36 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                                     const kmp_uint32 nthreads,
                                     const kmp_uint32 numaSize,
                                     const kmp_real64 taskloop_start_time) {
-  kmp_real64 exec_time = taskloop_start_time;
+  kmp_real64 stop_time = taskloop_start_time;
   kmp_real64 IPC = 0.0;
   for (kmp_uint32 i = 0; i < nthreads; i++) {
     kmp_info_t *thread = team->t.t_threads[i];
 #ifdef PERF_COUNTERS
-    IPC += frac(thread->th.perf_accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)],
-                thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)]);
+    const auto tot_ins =
+        thread->th.perf_accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)];
+    const auto tot_cyc = thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)];
+    if (tot_cyc != 0) {
+      IPC += frac(tot_ins, tot_cyc);
+    }
     // Reset thread stats
     thread->th.perf_accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)] = 0;
     thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)] = 0;
 #endif
-    if (exec_time < thread->th.task_finish_time) {
-      exec_time = thread->th.task_finish_time;
+    if (stop_time < thread->th.task_finish_time) {
+      stop_time = thread->th.task_finish_time;
     }
 
     if ((i + 1) % numaSize == 0 || (i + 1) == nthreads) {
       numaSummary[i / numaSize].execution_time =
-          exec_time - taskloop_start_time;
+          stop_time - taskloop_start_time;
       numaSummary[i / numaSize].IPC = IPC / numaSize;
-      KA_TRACE(2, ("__kmp_summarize_taskloop_stats: NUMA node %d\n"
-                   "    - IPC: %lf\n"
-                   "    - Exec time: %lf\n",
-                   i / numaSize, IPC, exec_time));
+      KA_TRACE(1,
+               ("__kmp_summarize_taskloop_stats: NUMA node %d\n"
+                "    - IPC: %lf\n"
+                "    - Exec time: %lf\n",
+                i / numaSize, IPC / numaSize, stop_time - taskloop_start_time));
       IPC = 0.0;
-      exec_time = 0;
+      stop_time = taskloop_start_time;
     }
   }
 }

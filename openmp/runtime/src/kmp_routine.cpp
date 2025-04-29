@@ -114,16 +114,20 @@ void Routine::binarySearch() {
                m_2ndfastest.num_threads, m_2ndfastest.num_tasks,
                static_cast<int>(m_2ndfastest.steal_policy), fastest2nd_time));
 
-  kmp_int64 diff_threads =
+  const kmp_int64 diff_threads =
       getDiff(m_1stfastest.num_threads, m_2ndfastest.num_threads);
-  kmp_int64 next_num_threads =
+  const kmp_int64 next_num_threads =
       getMin(m_1stfastest.num_threads, m_2ndfastest.num_threads) +
-      diff_threads / 2;
+      (((diff_threads / 2) / MOLDABILITY_GRANULARITY) *
+       MOLDABILITY_GRANULARITY);
 
   // Check if the smallest config is fastest.
   // In this case, select the smallest number of threads
   if (m_iteration_count == 3 &&
       m_1stfastest.num_threads < m_2ndfastest.num_threads) {
+    if (m_current_config.num_threads == MOLDABILITY_GRANULARITY) {
+      m_search_finished = true;
+    }
 
     m_current_config.num_threads = MOLDABILITY_GRANULARITY;
   }
@@ -148,8 +152,12 @@ void Routine::binarySearch() {
   // Select the config inbetween the fastest and
   // second fastest config.
   else {
-
-    m_current_config.num_threads = next_num_threads;
+    if (m_current_config.num_threads == next_num_threads) {
+      m_search_finished = true;
+      m_current_config = m_1stfastest;
+    } else {
+      m_current_config.num_threads = next_num_threads;
+    }
 
     KA_TRACE(3, ("Routine::binarySearch(): Selecting new config"
                  " based on thread diff: %d, new number of threads: %d.\n",
@@ -234,14 +242,15 @@ void Routine::storeExecution(routine_stats_nodes stats) {
   // stats.
   auto i = 0;
   for (const auto &stat : stats) {
-    if (!((mask) & 1U) && (stat.execution_time != 0)) {
-      KA_TRACE(1, ("Routine::storeExecution(): Stat non zero for node [%d] "
+    if (((1U << i) & mask) == 0 && (stat.execution_time != 0)) {
+      auto tmp = std::bitset<16>(m_current_config.node_mask);
+      KA_TRACE(1, ("Routine::storeExecution(): Node mask = 0b%s. Stat non zero "
+                   "for node [%d] "
                    "(routine %p)\n",
-                   i, m_routine_id));
+                   tmp.to_string().c_str(), i, m_routine_id));
       KMP_DEBUG_ASSERT(false);
     }
     i++;
-    mask >>= 1;
   }
 
   // If config doesnt exists, just add the config and stats
@@ -309,18 +318,17 @@ inline kmp_uint32 pext(kmp_uint64 BB, kmp_uint64 mask) {
 /// @note This function assumes that m_current_config does not
 /// change before next taskloop execution.
 ///
-kmp_uint16 Routine::getNUMAMask() {
-  if (m_iteration_count == 1) {
+kmp_uint16 Routine::getNUMAMask() const {
+  if (m_iteration_count == 1 || m_current_config.num_threads == 1) {
     return m_current_config.node_mask;
   }
-  const auto SOCKET_SIZE = Topo::numa_topology.get_num_cores() /
-                           Topo::numa_topology.get_num_socket();
+  const auto NODE_PER_SOCKET =
+      Topo::numa_topology.get_num_numa() / Topo::numa_topology.get_num_socket();
   const auto NUMA_SIZE = Topo::numa_topology.get_numa_size();
-  auto elem = std::find_if(m_execution_history.begin(),
-                           m_execution_history.end(), [](const auto &kv) {
-                             return kv.first.num_threads ==
-                                    Topo::numa_topology.get_num_cores();
-                           });
+  const auto ncores = Topo::numa_topology.get_num_cores();
+  auto elem = std::find_if(
+      m_execution_history.begin(), m_execution_history.end(),
+      [ncores](const auto &kv) { return kv.first.num_threads == ncores; });
   KMP_DEBUG_ASSERT(elem != m_execution_history.end());
 
   const auto &stats = elem->second;
@@ -332,9 +340,9 @@ kmp_uint16 Routine::getNUMAMask() {
   auto index = std::distance(stats.begin(), min_iter);
   KA_TRACE(1, ("Routine::getNUMAMask(): Fastest index = %d\n", index));
 
-  auto numaCount = m_current_config.num_threads / NUMA_SIZE - 1;
+  auto numaCount = (m_current_config.num_threads / NUMA_SIZE) - 1;
   kmp_uint16 mask = static_cast<kmp_uint16>(1U << index);
-  index = index / SOCKET_SIZE * SOCKET_SIZE;
+  index = (index / NODE_PER_SOCKET) * NODE_PER_SOCKET;
   while (numaCount > 0) {
     while (((1U << index) & mask) != 0) {
       index = (index + 1) % Topo::numa_topology.get_num_numa();

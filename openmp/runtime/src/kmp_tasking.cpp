@@ -5065,6 +5065,11 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
 #endif
     lower = upper + st; // adjust lower bound for the next iteration
   }
+  // ODIN
+  KMP_TASK_TO_TASKDATA(task)->td_affin_mask =
+      static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
+  KMP_TASK_TO_TASKDATA(task)->td_task_place_tid = __kmp_tid_from_gtid(gtid);
+  // ODIN END
 
   // free the pattern task and exit
   __kmp_task_start(gtid, task, current_task); // make internal bookkeeping
@@ -5256,6 +5261,7 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
   kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
   new_taskdata->td_affin_mask =
       static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
+  new_taskdata->td_task_place_tid = __kmp_tid_from_gtid(gtid);
   // ODIN END
   // restore current task
   thread->th.th_current_task = current_task;
@@ -5445,8 +5451,9 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
 
   // ODIN
   thread->th.th_team->t.t_proc_bind = proc_bind_true;
-
   Schedule::__kmp_start_routine_timer();
+  KA_TRACE(1, ("__kmp_taskloop: Start routine timer: routine %p, time %lf\n",
+               thread->th.routine_id, Schedule::__kmp_get_routine_timer()));
   // ODIN END
 
   // =========================================================================
