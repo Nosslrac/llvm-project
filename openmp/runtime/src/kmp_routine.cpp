@@ -152,8 +152,12 @@ void Routine::binarySearch() {
   // Select the config inbetween the fastest and
   // second fastest config.
   else {
-
-    m_current_config.num_threads = next_num_threads;
+    if (m_current_config.num_threads == next_num_threads) {
+      m_search_finished = true;
+      m_current_config = m_1stfastest;
+    } else {
+      m_current_config.num_threads = next_num_threads;
+    }
 
     KA_TRACE(3, ("Routine::binarySearch(): Selecting new config"
                  " based on thread diff: %d, new number of threads: %d.\n",
@@ -315,7 +319,7 @@ inline kmp_uint32 pext(kmp_uint64 BB, kmp_uint64 mask) {
 /// change before next taskloop execution.
 ///
 kmp_uint16 Routine::getNUMAMask() const {
-  if (m_iteration_count == 1) {
+  if (m_iteration_count == 1 || m_current_config.num_threads == 1) {
     return m_current_config.node_mask;
   }
   const auto NODE_PER_SOCKET =

@@ -5069,6 +5069,7 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
   // ODIN
   KMP_TASK_TO_TASKDATA(task)->td_affin_mask =
       static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
+  KMP_TASK_TO_TASKDATA(task)->td_task_place_tid = __kmp_tid_from_gtid(gtid);
   // ODIN END
 
   // free the pattern task and exit
@@ -5261,6 +5262,7 @@ void __kmp_taskloop_recur(ident_t *loc, int gtid, kmp_task_t *task,
   kmp_taskdata_t *new_taskdata = KMP_TASK_TO_TASKDATA(new_task);
   new_taskdata->td_affin_mask =
       static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
+  new_taskdata->td_task_place_tid = __kmp_tid_from_gtid(gtid);
   // ODIN END
   // restore current task
   thread->th.th_current_task = current_task;
@@ -5400,7 +5402,6 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     // (Selects default config if no history is available)
     thread->th.routine_id = (kmp_int64)task->routine;
     next_config = Schedule::__kmp_select_config(thread);
-    Topo::numa_topology.showTopo();
     if (thread->th.th_task_team &&
         KMP_TASKING_ENABLED(thread->th.th_task_team)) {
       // If tasking isn't enabled the numa head will be initialized in

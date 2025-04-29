@@ -21,6 +21,7 @@
 #include "kmp_settings.h"
 #include "kmp_stats.h"
 #include "kmp_str.h"
+#include "kmp_topo.h"
 #include "kmp_wait_release.h"
 #include "kmp_wrapper_getpid.h"
 #include "kmp_dispatch.h"
@@ -7471,6 +7472,7 @@ static void __kmp_do_middle_initialize(void) {
   // Open file descriptors for all perf events for the master thread
   // (All other threads will run init_counters from __kmp_launch_thread() )
   Perf::__kmp_init_counters(__kmp_thread_from_gtid(gtid), gtid);
+  Topo::numa_topology.showTopo();
 #endif
   // ODIN END
 
