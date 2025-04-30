@@ -112,11 +112,11 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread, kmp_taskdata_t* taskdat
   kmp_team_t *team = thread->th.th_team;
   int32_t nthreads = team->t.t_nproc;
 
-  const auto nNumaNodes = nthreads / 8; // TODO: use topology to decide this
-  const auto numaNodeSize = nthreads / nNumaNodes;
+  const auto numaNodeSize = 8;
+  const auto nNumaNodes = std::max(nthreads / numaNodeSize, 1);;
 
   const auto midRange = (lb + ub) / 2;
-  const auto bucketSize = glob_ub / nNumaNodes;
+  const auto bucketSize = std::max((glob_ub / nNumaNodes), 1ULL);
   auto numaId = midRange / bucketSize;
   numaId = min(numaId, nNumaNodes - 1); // Round down for last iterations
   const auto discreteProc = numaId * numaNodeSize; // 0 | 8 | 16 | 24 | ...
