@@ -277,6 +277,12 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                                     const kmp_real64 taskloop_start_time) {
   kmp_real64 stop_time = taskloop_start_time;
   kmp_real64 IPC = 0.0;
+  int node_loss = 0;
+
+#ifdef AMD_PERF
+  AMDRawResults results;
+#endif
+
   for (kmp_uint32 i = 0; i < nthreads; i++) {
     kmp_info_t *thread = team->t.t_threads[i];
 #ifdef PERF_COUNTERS
@@ -285,7 +291,10 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
     const auto tot_cyc = thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)];
     if (tot_cyc != 0) {
       IPC += frac(tot_ins, tot_cyc);
+    } else {
+      node_loss++;
     }
+
     // Reset thread stats
     thread->th.perf_accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)] = 0;
     thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)] = 0;
@@ -294,17 +303,49 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
       stop_time = thread->th.task_finish_time;
     }
 
-    if ((i + 1) % numaSize == 0 || (i + 1) == nthreads) {
+#ifdef AMD_PERF
+    results += thread->th.perf_container.summarizeCounters();
+#endif
+
+    if (numaSize - node_loss == 0) {
+      KA_TRACE(1, ("__kmp_summarize_taskloop_stats: Node loss = numaSize!\n"));
+    } else if ((i + 1) % numaSize == 0 || (i + 1) == nthreads) {
       numaSummary[i / numaSize].execution_time =
           stop_time - taskloop_start_time;
-      numaSummary[i / numaSize].IPC = IPC / numaSize;
+      numaSummary[i / numaSize].IPC = IPC / (numaSize - node_loss);
+
+#ifdef AMD_PERF
+      results.avg(numaSize - node_loss);
+#endif
+
       KA_TRACE(1,
                ("__kmp_summarize_taskloop_stats: NUMA node %d\n"
-                "    - IPC: %lf\n"
-                "    - Exec time: %lf\n",
-                i / numaSize, IPC / numaSize, stop_time - taskloop_start_time));
+                "      - IPC: %lf\n"
+                "      - Exec time: %lf\n"
+#ifdef AMD_PERF
+                "  # AMD raw ratios:\n"
+                "      - TotDisp = %lu\n"
+                "      - L1 Fills All = %lu\n"
+                "      - L1 Fills Different NUMA = %lu\n"
+                "      - L1 Fills same CXX = %lu\n"
+                "      - L1 Fills another CXX = %lu\n"
+                "      - Retiring fraction = %lf\n"
+                "      - Backend bound = %lf\n"
+                "      - Backend bound Memory = %lf\n"
+                "      - Backend bound CPU = %lf\n"
+#endif
+                ,
+                i / numaSize, IPC / numaSize, stop_time - taskloop_start_time
+#ifdef AMD_PERF
+                ,
+                results.m_totDisp, results.m_l1All, results.m_l1DiffNuma,
+                results.m_l1SameCXX, results.m_l1AnotherCXX, results.m_retiring,
+                results.m_backend, results.m_backendMem, results.m_backendCPU
+#endif
+                ));
       IPC = 0.0;
       stop_time = taskloop_start_time;
+      node_loss = 0;
     }
   }
 }
