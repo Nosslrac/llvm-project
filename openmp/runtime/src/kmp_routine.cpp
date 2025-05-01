@@ -67,19 +67,9 @@ routine_config Routine::getInitialConfig(kmp_uint32 nthreads) {
 }
 
 ///
-/// @brief Check if execution time is below threshold, MOLDABILITY_GRANULARITY
-/// number of cores. Otherwise, check if binary search is possible.
+/// @brief Check if binary search is possible.
 ///
 void Routine::initBinarySearch() {
-  if (calcSlowestNUMAExec(m_current_config) < TINY_TASKLOOP_THRESHOLD) {
-
-    m_current_config.num_threads = MOLDABILITY_GRANULARITY;
-    KA_TRACE(1, ("Routine::initBinarySearch(): Very short taskloop!!"
-                 " Only use 1 NUMA node (%d threads) for routine %p .\n",
-                 m_current_config.num_threads, m_routine_id));
-    m_search_finished = true;
-    return;
-  }
 
   if (m_current_config.num_threads >= MOLDABILITY_GRANULARITY * 2) {
 
@@ -94,6 +84,7 @@ void Routine::initBinarySearch() {
   KA_TRACE(1, ("Routine::initBinarySearch(): Binary search not possible: To "
                "few NUMA nodes\n"));
   m_search_finished = true;
+  m_1stfastest = m_current_config;
 }
 
 ///
@@ -142,11 +133,6 @@ void Routine::binarySearch() {
     KA_TRACE(
         3,
         ("Routine::binarySearch(): Search finished. Select fastest config.\n"));
-
-// Check if load balancing is required.
-#ifdef LOADBALANCE
-    m_current_config.steal_policy = checkLoadBalance();
-#endif
   }
 
   // Select the config inbetween the fastest and
@@ -181,6 +167,7 @@ void Routine::binarySearch() {
 ///    determine if the stealing policy needs to be changed.
 const routine_config &Routine::getNextConfig() {
   m_iteration_count++;
+  bool current_search_state = m_search_finished;
 
 #ifndef MOLDABILITY
 #ifdef LOADBALANCE
@@ -189,14 +176,13 @@ const routine_config &Routine::getNextConfig() {
   return m_current_config;
 #endif
   if (m_current_config.num_threads == 1) {
-    KA_TRACE(1, ("Routine::getNextConfig(): Nthreads = 1\n"));
     m_search_finished = true;
-  } else if (m_search_finished || m_iteration_count == 1) {
+  } else if (m_iteration_count == 1) {
     // Do nothing, just keep executing the current config
-    KA_TRACE(
-        1, ("Routine::getNextConfig(): Search finsihed | iteration count 1\n"));
+  } else if (m_search_finished) {
+    // Keep running the fastest config
+    m_current_config = m_1stfastest;
   } else if (m_iteration_count == 2) {
-    KA_TRACE(1, ("Routine::getNextConfig(): initBinary\n"));
     initBinarySearch();
   }
 
@@ -212,6 +198,13 @@ const routine_config &Routine::getNextConfig() {
 
   // Determine NUMA node placement
   m_current_config.node_mask = getNUMAMask();
+
+  // Check if load balancing is required.
+#ifdef LOADBALANCE
+  if (m_search_finished == true && current_search_state == false) {
+    m_current_config.steal_policy = checkLoadBalance();
+  }
+#endif
 
   KA_TRACE(1, ("Routine::getNextConfig(): Routine %p was given config: "
                "{nthreads=%d, ntasks=%d, mask=%s, steal_policy=%d} .\n",
@@ -276,20 +269,16 @@ void Routine::storeExecution(routine_stats_nodes stats) {
   }
   printStatsArray(stats);
 
-  if (m_search_finished) {
-    return;
-  }
-
   if (m_1stfastest.num_threads == -1 ||
       isXFasterThanY(m_current_config, m_1stfastest)) {
     KMP_DEBUG_ASSERT(!(m_current_config == m_1stfastest));
-    KA_TRACE(2, ("Routine::storeExecution: Updating fastest configs\n"));
+    KA_TRACE(1, ("Routine::storeExecution: Updating fastest configs\n"));
     m_2ndfastest = m_1stfastest;
     m_1stfastest = m_current_config;
   } else if (m_2ndfastest.num_threads == -1 ||
              isXFasterThanY(m_current_config, m_2ndfastest)) {
     KMP_DEBUG_ASSERT(!(m_current_config == m_2ndfastest));
-    KA_TRACE(2, ("Routine::storeExecution: Updating 2nd fastest config\n"));
+    KA_TRACE(1, ("Routine::storeExecution: Updating 2nd fastest config\n"));
     m_2ndfastest = m_current_config;
   }
 }
@@ -381,7 +370,7 @@ StealPolicy Routine::checkLoadBalance() {
   if (diff >= LOAD_BALANCE_REQUIRED_FACTOR)
     policy = StealPolicy::FULL;
 
-  KA_TRACE(2, ("Routine::checkLoadbalance(): Policy %d selected for routine "
+  KA_TRACE(1, ("Routine::checkLoadbalance(): Policy %d selected for routine "
                "%p. Fastest:%f, "
                "Slowest:%f, diff:%f\n",
                policy, m_routine_id, fastest, slowest, diff))

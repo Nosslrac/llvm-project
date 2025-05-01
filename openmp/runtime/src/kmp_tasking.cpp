@@ -5383,10 +5383,10 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
         KMP_MIN(thread->th.th_team_nproc * 10, INITIAL_TASK_DEQUE_SIZE);
   }
 
-  KA_TRACE(3, ("__kmp_taskloop: T#%d, task %p, lb %lld, ub %lld, st %lld, "
+  KA_TRACE(1, ("__kmp_taskloop: T#%d, routine %p, lb %lld, ub %lld, st %lld, "
                "grain %llu(%d, %d), dup %p\n",
-               gtid, taskdata, lower, upper, st, grainsize, sched, modifier,
-               task_dup));
+               __kmp_tid_from_gtid(gtid), (kmp_int64)task->routine, lower,
+               upper, st, grainsize, sched, modifier, task_dup));
 
   routine_config next_config;
   // compute num_tasks/grainsize based on the input provided

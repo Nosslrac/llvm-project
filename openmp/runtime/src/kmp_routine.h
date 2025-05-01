@@ -9,8 +9,7 @@
 #include <vector>
 
 union kmp_info;
-constexpr kmp_real64 TINY_TASKLOOP_THRESHOLD = 0.001;
-constexpr kmp_real64 LOAD_BALANCE_REQUIRED_FACTOR = 1.2;
+constexpr kmp_real64 LOAD_BALANCE_REQUIRED_FACTOR = 2;
 
 enum class StealPolicy : kmp_uint16 {
   NUMA = 0,

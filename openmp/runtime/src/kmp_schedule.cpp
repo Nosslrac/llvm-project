@@ -124,9 +124,16 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   const auto numaCores = Topo::numa_topology.get_num_cores();
   KMP_DEBUG_ASSERT(numaCores);
 #ifdef MOLDABILITY
-  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
-  const routine_config &config = routine_map.at(routine_id).getCurrentConfig();
-  const auto numNuma = bitCount(config.node_mask);
+  kmp_uint16 nodeMask;
+  if (thread->th.th_team_nproc == 1) {
+    nodeMask = static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
+  } else {
+    KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
+    const routine_config &config =
+        routine_map.at(routine_id).getCurrentConfig();
+    nodeMask = config.node_mask;
+  }
+  const auto numNuma = bitCount(nodeMask);
 #else
   const auto numNuma = Topo::numa_topology.get_num_numa();
 #endif
@@ -150,7 +157,7 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
       static_cast<kmp_uint8>(min((midRange / bucketSize), numNuma - 1));
   KMP_DEBUG_ASSERT(bucketId < numNuma);
 #ifdef MOLDABILITY
-  const auto numaId = findBit(config.node_mask, bucketId);
+  const auto numaId = findBit(nodeMask, bucketId);
 #else
   const auto numaId = bucketId;
 #endif
@@ -219,10 +226,17 @@ kmp_uint16 Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
     return static_cast<kmp_uint16>(StealPolicy::NUMA);
   }
 #ifdef MOLDABILITY
+  if (thread->th.th_team_nproc == 1) {
+    return static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
+  }
+
   KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
 
   const routine_config &config = routine_map.at(routine_id).getCurrentConfig();
-  return config.node_mask;
+  if (config.steal_policy == StealPolicy::FULL) {
+    return config.node_mask;
+  }
+  return static_cast<kmp_uint16>(StealPolicy::NUMA);
 #endif
   return static_cast<kmp_uint16>(StealPolicy::FULL);
 }
@@ -314,6 +328,13 @@ void Schedule::__kmp_set_numa_affinity(kmp_affinity_t *global_affin,
 /// @brief Summarize and store the stats for the executed taskloop
 ///
 void Schedule::__kmp_store_routine_stats(kmp_team *team, kmp_int64 routine_id) {
+  if (team->t.t_nproc == 1) {
+    KA_TRACE(
+        1,
+        ("__kmp_store_routine_stats: Only 1 thread, do not store stats. %p\n",
+         routine_id));
+    return;
+  }
   routine_stats_nodes stats(Topo::numa_topology.get_num_numa());
 
   const kmp_real64 taskloop_start_time = Schedule::__kmp_get_routine_timer();
@@ -334,6 +355,15 @@ void Schedule::__kmp_store_routine_stats(kmp_team *team, kmp_int64 routine_id) {
 /// about to be executed.
 ///
 routine_config Schedule::__kmp_select_config(kmp_info *thread) {
+
+  if (thread->th.th_team_nproc == 1) {
+    KA_TRACE(1, ("__kmp_store_routine_stats: Select default "
+                 "config={1,10,255,TASK_GEN}\n"));
+    return routine_config{1, 10,
+                          static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION),
+                          StealPolicy::TASK_GENERATION};
+  }
+
   routine_config ret_config;
   kmp_int64 routine_id = thread->th.routine_id;
 
