@@ -7,7 +7,7 @@
 #include <vector>
 
 union kmp_info;
-constexpr kmp_real64 LOAD_BALANCE_REQUIRED_FACTOR = 2;
+constexpr kmp_real64 LOAD_BALANCE_REQUIRED_FACTOR = 1.0;
 
 enum class StealPolicy : kmp_uint16 {
   NUMA = 0,

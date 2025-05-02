@@ -307,9 +307,12 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
     results += thread->th.perf_container.summarizeCounters();
 #endif
 
-    if (numaSize - node_loss == 0) {
-      KA_TRACE(1, ("__kmp_summarize_taskloop_stats: Node loss = numaSize!\n"));
-    } else if ((i + 1) % numaSize == 0 || (i + 1) == nthreads) {
+    if ((i + 1) % numaSize == 0 || (i + 1) == nthreads) {
+      if (numaSize - node_loss == 0) {
+        KA_TRACE(1,
+                 ("__kmp_summarize_taskloop_stats: Node loss = numaSize!\n"));
+        node_loss = 0;
+      }
       numaSummary[i / numaSize].execution_time =
           stop_time - taskloop_start_time;
       numaSummary[i / numaSize].IPC = IPC / (numaSize - node_loss);
