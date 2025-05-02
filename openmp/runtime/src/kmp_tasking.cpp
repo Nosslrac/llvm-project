@@ -5400,7 +5400,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
     // Select config for next taskloop execution based on execution history
     // (Selects default config if no history is available)
     thread->th.routine_id = (kmp_int64)task->routine;
-    next_config = Schedule::__kmp_select_config(thread);
+    next_config = Schedule::__kmp_select_config(thread, upper);
     if (thread->th.th_task_team &&
         KMP_TASKING_ENABLED(thread->th.th_task_team)) {
       // If tasking isn't enabled the numa head will be initialized in
@@ -5452,7 +5452,7 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
   // ODIN
   thread->th.th_team->t.t_proc_bind = proc_bind_true;
   Schedule::__kmp_start_routine_timer();
-  KA_TRACE(1, ("__kmp_taskloop: Start routine timer: routine %p, time %lf\n",
+  KA_TRACE(2, ("__kmp_taskloop: Start routine timer: routine %p, time %lf\n",
                thread->th.routine_id, Schedule::__kmp_get_routine_timer()));
   // ODIN END
 

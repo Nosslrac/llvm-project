@@ -48,6 +48,7 @@ private:
   kmp_int64 m_routine_id;
   std::unordered_map<routine_config, routine_stats_nodes, routine_config_hash>
       m_execution_history;
+  kmp_uint64 m_upper_bound;
   routine_config m_current_config;
   routine_config m_1stfastest;
   routine_config m_2ndfastest;
@@ -69,8 +70,8 @@ private:
   }
 
 public:
-  explicit Routine(kmp_int64 routine_id, kmp_uint32 nthreads);
+  explicit Routine(kmp_int64 routine_id, kmp_uint32 nthreads, kmp_uint64 ub);
   const routine_config &getCurrentConfig() const;
-  const routine_config &getNextConfig();
+  const routine_config &getNextConfig(kmp_uint64 ub);
   void storeExecution(routine_stats_nodes stats);
 };
