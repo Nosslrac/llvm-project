@@ -546,8 +546,7 @@ static kmp_int32 __kmp_push_task(kmp_int32 gtid, kmp_task_t *task) {
 
   // Find tasking deque specific to encountering thread
   // ODIN
-  thread_data = Schedule::__kmp_select_thread_data_queue(
-      task_team, taskdata, (kmp_int64)task->routine);
+  thread_data = Schedule::__kmp_select_thread_data_queue(task_team, taskdata);
   // ODIN END
 
   // No lock needed since only owner can allocate. If the task is hidden_helper,
@@ -4980,6 +4979,9 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
   kmp_task_t *next_task;
   kmp_int32 lastpriv = 0;
 
+  const Schedule::PolicyInfo policyInfo =
+      Schedule::__kmp_get_policy_info(thread, (kmp_int64)task->routine);
+
   KMP_DEBUG_ASSERT(tc == num_tasks * grainsize +
                              (last_chunk < 0 ? last_chunk : extras));
   KMP_DEBUG_ASSERT(num_tasks > extras);
@@ -5047,8 +5049,9 @@ void __kmp_taskloop_linear(ident_t *loc, int gtid, kmp_task_t *task,
               next_task_bounds.get_upper_offset()));
     // ODIN
     // Set affinity mask for taskdata based on taskloop_linear config
-    Schedule::__kmp_set_task_affinity(
-        thread, next_taskdata, (kmp_int64)task->routine, lower, upper, ub_glob);
+    Schedule::__kmp_set_task_affinity(thread, next_taskdata,
+                                      (kmp_int64)task->routine, policyInfo,
+                                      lower, upper, ub_glob);
     // ODIN END
 
 #if OMPT_SUPPORT

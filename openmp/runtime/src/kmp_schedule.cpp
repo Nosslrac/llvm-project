@@ -1,6 +1,5 @@
 #include "kmp_schedule.h"
 
-#include "hwloc.h"
 #include "kmp.h"
 #include "kmp_debug.h"
 #include <bitset>
@@ -84,8 +83,9 @@ kmp_int32 Schedule::__kmp_get_numa_base(kmp_int32 tid) {
 /// __kmp_set_task_affinity). It might update the affinity mask of the task to
 /// enable load balancing.
 ///
-kmp_thread_data_t *Schedule::__kmp_select_thread_data_queue(
-    kmp_task_team *task_team, kmp_taskdata_t *taskdata, kmp_int64 routine_id) {
+kmp_thread_data_t *
+Schedule::__kmp_select_thread_data_queue(kmp_task_team *task_team,
+                                         kmp_taskdata_t *taskdata) {
 
   const auto nthreads = task_team->tt.tt_nproc;
   KMP_DEBUG_ASSERT(taskdata);
@@ -96,8 +96,14 @@ kmp_thread_data_t *Schedule::__kmp_select_thread_data_queue(
   kmp_info_t *base_numa_thread = thread_data->td.td_thr;
   if (taskdata->td_affin_mask !=
       static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
+#ifdef MOLDABILITY
+    const kmp_uint16 available_steal = taskdata->td_available_steal;
+#else
+    const kmp_uint16 available_steal =
+        static_cast<kmp_uint16>(StealPolicy::FULL);
+#endif
     taskdata->td_affin_mask |= Schedule::__kmp_get_load_balance_mask(
-        base_numa_thread, thread_data, routine_id);
+        base_numa_thread, thread_data, available_steal);
   }
 
   KA_TRACE(3, ("%s:%d: __kmp_optimal_thread: Base NUMA thread tid=%d\n ",
@@ -113,27 +119,19 @@ kmp_thread_data_t *Schedule::__kmp_select_thread_data_queue(
 /// in __kmp_select_thread_data_queue() and might be tagged for load balancing.
 void Schedule::__kmp_set_task_affinity(kmp_info *thread,
                                        kmp_taskdata_t *taskdata,
-                                       kmp_int64 routine_id, kmp_uint64 lb,
-                                       kmp_uint64 ub, kmp_uint64 glob_ub) {
+                                       const kmp_int64 routine_id,
+                                       const PolicyInfo &policyInfo,
+                                       const kmp_uint64 lb, const kmp_uint64 ub,
+                                       const kmp_uint64 glob_ub) {
   KMP_DEBUG_ASSERT(taskdata);
 
   kmp_team_t *team = thread->th.th_team;
-  auto nthreads = static_cast<uint32_t>(team->t.t_nproc);
+  const auto nthreads = static_cast<uint32_t>(team->t.t_nproc);
 
   // Info based on topology
-  const auto numaCores = Topo::numa_topology.get_num_cores();
-  KMP_DEBUG_ASSERT(numaCores);
 #ifdef MOLDABILITY
-  kmp_uint16 nodeMask;
-  if (thread->th.th_team_nproc == 1) {
-    nodeMask = static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
-  } else {
-    KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
-    const routine_config &config =
-        routine_map.at(routine_id).getCurrentConfig();
-    nodeMask = config.node_mask;
-  }
-  const auto numNuma = bitCount(nodeMask);
+  // Load balance mask is the same as node_mask when moldability is active
+  const auto numNuma = bitCount(policyInfo.node_mask);
 #else
   const auto numNuma = Topo::numa_topology.get_num_numa();
 #endif
@@ -148,6 +146,7 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
                                    numaNodeSize) *
                                   numaNodeSize;
     taskdata->td_affin_mask = static_cast<kmp_uint16>(StealPolicy::FULL);
+    taskdata->td_available_steal = static_cast<kmp_uint16>(StealPolicy::FULL);
     return;
   }
 
@@ -157,13 +156,14 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
       static_cast<kmp_uint8>(min((midRange / bucketSize), numNuma - 1));
   KMP_DEBUG_ASSERT(bucketId < numNuma);
 #ifdef MOLDABILITY
-  const auto numaId = findBit(nodeMask, bucketId);
+  const auto numaId = findBit(policyInfo.node_mask, bucketId);
 #else
   const auto numaId = bucketId;
 #endif
 
   taskdata->td_affin_mask = static_cast<kmp_uint16>(1U << numaId);
   taskdata->td_task_place_tid = numaId * numaNodeSize;
+  taskdata->td_available_steal = policyInfo.available_steal_mask;
 
   KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: for routine %p: Nthreads=%d, "
                "Nnuma=%d, "
@@ -207,9 +207,10 @@ void Schedule::__kmp_set_start_head(kmp_task_team_t *task_team,
 ///
 /// @brief Decide if task should be marked for load balancing.
 ///
-kmp_uint16 Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
-                                                 kmp_thread_data_t *thread_data,
-                                                 kmp_int64 routine_id) {
+kmp_uint16
+Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
+                                      kmp_thread_data_t *thread_data,
+                                      const kmp_uint16 available_steal) {
 
   const auto coresPerNuma =
       Topo::numa_topology.get_num_cores() / Topo::numa_topology.get_num_numa();
@@ -225,20 +226,7 @@ kmp_uint16 Schedule::__kmp_get_load_balance_mask(kmp_info_t *thread,
   if (distance <= numStrictTasks) {
     return static_cast<kmp_uint16>(StealPolicy::NUMA);
   }
-#ifdef MOLDABILITY
-  if (thread->th.th_team_nproc == 1) {
-    return static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION);
-  }
-
-  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
-
-  const routine_config &config = routine_map.at(routine_id).getCurrentConfig();
-  if (config.steal_policy == StealPolicy::FULL) {
-    return config.node_mask;
-  }
-  return static_cast<kmp_uint16>(StealPolicy::NUMA);
-#endif
-  return static_cast<kmp_uint16>(StealPolicy::FULL);
+  return available_steal;
 }
 
 ///
@@ -385,6 +373,29 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread, kmp_uint64 ub) {
             ret_config.node_mask, static_cast<int>(ret_config.steal_policy)));
 
   return ret_config;
+}
+
+Schedule::PolicyInfo Schedule::__kmp_get_policy_info(kmp_info *thread,
+                                                     kmp_int64 routine_id) {
+  if (thread->th.th_team_nproc == 1) {
+    return PolicyInfo(static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION),
+                      static_cast<kmp_uint16>(StealPolicy::FULL));
+  }
+
+#ifdef MOLDABILITY
+  KMP_DEBUG_ASSERT(routine_map.find(routine_id) != routine_map.end());
+  const auto &config = routine_map.at(routine_id).getCurrentConfig();
+  const kmp_uint16 node_mask = config.node_mask;
+  const kmp_uint16 available_steal =
+      config.steal_policy == StealPolicy::FULL
+          ? node_mask
+          : static_cast<kmp_uint16>(StealPolicy::NUMA);
+#else
+  const kmp_uint16 node_mask = 0;
+  const kmp_uint16 available_steal = static_cast<kmp_uint16>(StealPolicy::FULL);
+#endif
+
+  return PolicyInfo(node_mask, available_steal);
 }
 
 ///

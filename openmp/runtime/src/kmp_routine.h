@@ -2,8 +2,6 @@
 
 #include "kmp_os.h"
 #include <unordered_map>
-#include "kmp_debug.h"
-#include "kmp_topo.h"
 #include <cfloat>
 #include <climits>
 #include <vector>
