@@ -325,9 +325,6 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
           stop_time - taskloop_start_time;
       numaSummary[i / numaSize].IPC = IPC / (numaSize - node_loss);
 
-      tasks = tasks / (numaSize - node_loss);
-      tasks_gen = tasks_gen / (numaSize - node_loss);
-
 #ifdef AMD_PERF
       results.avg(numaSize - node_loss);
 #endif
@@ -336,8 +333,8 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                ("__kmp_summarize_taskloop_stats: NUMA node %d\n"
                 "      - IPC: %lf\n"
                 "      - Exec time: %lf\n"
-                "      - Tasks: %d\n"
-                "      - Gen Tasks: %d\n"
+                "      - Tasks (not averaged): %d\n"
+                "      - Gen Tasks (not averaged): %d\n"
 
 #ifdef AMD_PERF
                 "  # AMD raw ratios:\n"
