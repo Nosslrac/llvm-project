@@ -3068,6 +3068,8 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   // Perf counters accumulated for all tasks running on a thread.
   // Resets when the taskloop is finished.
   kmp_uint64 perf_accum[NUM_PERF_EVENTS];
+  kmp_uint32 num_tasks_exec;
+  kmp_uint32 num_task_gen_exec;
 
 #ifdef AMD_PERF
   // Container for RAW perf events

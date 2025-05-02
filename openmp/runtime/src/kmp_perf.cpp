@@ -278,6 +278,8 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
   kmp_real64 stop_time = taskloop_start_time;
   kmp_real64 IPC = 0.0;
   int node_loss = 0;
+  auto tasks = 0;
+  auto tasks_gen = 0;
 
 #ifdef AMD_PERF
   AMDRawResults results;
@@ -295,9 +297,15 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
       node_loss++;
     }
 
+    tasks += thread->th.num_tasks_exec;
+    tasks_gen += thread->th.num_task_gen_exec;
+
     // Reset thread stats
     thread->th.perf_accum[perf_id(PerfEvents::TOT_INSTRUCTIONS)] = 0;
     thread->th.perf_accum[perf_id(PerfEvents::TOT_CYCLES)] = 0;
+    thread->th.num_tasks_exec = 0;
+    thread->th.num_task_gen_exec = 0;
+
 #endif
     if (stop_time < thread->th.task_finish_time) {
       stop_time = thread->th.task_finish_time;
@@ -317,6 +325,9 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
           stop_time - taskloop_start_time;
       numaSummary[i / numaSize].IPC = IPC / (numaSize - node_loss);
 
+      tasks = tasks / (numaSize - node_loss);
+      tasks_gen = tasks_gen / (numaSize - node_loss);
+
 #ifdef AMD_PERF
       results.avg(numaSize - node_loss);
 #endif
@@ -325,6 +336,9 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                ("__kmp_summarize_taskloop_stats: NUMA node %d\n"
                 "      - IPC: %lf\n"
                 "      - Exec time: %lf\n"
+                "      - Tasks: %d\n"
+                "      - Gen Tasks: %d\n"
+
 #ifdef AMD_PERF
                 "  # AMD raw ratios:\n"
                 "      - TotDisp = %lu\n"
@@ -338,7 +352,8 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                 "      - Backend bound CPU = %lf\n"
 #endif
                 ,
-                i / numaSize, IPC / numaSize, stop_time - taskloop_start_time
+                i / numaSize, IPC, stop_time - taskloop_start_time, tasks,
+                tasks_gen
 #ifdef AMD_PERF
                 ,
                 results.m_totDisp, results.m_l1All, results.m_l1DiffNuma,
@@ -348,6 +363,8 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                 ));
       IPC = 0.0;
       stop_time = taskloop_start_time;
+      tasks = 0;
+      tasks_gen = 0;
       node_loss = 0;
     }
   }

@@ -1075,9 +1075,12 @@ static void __kmp_task_finish(kmp_int32 gtid, kmp_task_t *task,
   if (taskdata->td_affin_mask !=
       static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
     __kmp_read_system_time(&thread->th.task_finish_time);
+    thread->th.num_tasks_exec++;
 #ifdef PERF_COUNTERS
     Perf::__kmp_stop_counters(thread, gtid, (kmp_int64)taskdata);
 #endif
+  } else {
+    thread->th.num_task_gen_exec++;
   }
   // ODIN END
 
