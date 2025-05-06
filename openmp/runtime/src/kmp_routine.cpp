@@ -9,6 +9,7 @@
 #include <bitset>
 #include <cfloat>
 #include <climits>
+#include <cmath>
 
 namespace {
 routine_config UNDEFINED_CONFIG = {-1, -1, 0, StealPolicy::NUMA};
@@ -115,18 +116,18 @@ void Routine::binarySearch() {
 
   // Check if the smallest config is fastest.
   // In this case, select the smallest number of threads
-  if (m_iteration_count == 3 &&
-      m_1stfastest.num_threads < m_2ndfastest.num_threads) {
-    if (m_current_config.num_threads == MOLDABILITY_GRANULARITY) {
-      m_search_finished = true;
-    }
+  /*   if (m_iteration_count == 3 &&
+        m_1stfastest.num_threads < m_2ndfastest.num_threads) {
+      if (m_current_config.num_threads == MOLDABILITY_GRANULARITY) {
+        m_search_finished = true;
+      }
 
-    m_current_config.num_threads = MOLDABILITY_GRANULARITY;
-  }
+      m_current_config.num_threads = MOLDABILITY_GRANULARITY;
+    } */
 
   // Check if a local minima has been found.
   // In this case, select the fastest config.
-  else if (diff_threads <= MOLDABILITY_GRANULARITY) {
+  if (diff_threads <= MOLDABILITY_GRANULARITY) {
 
     m_search_finished = true;
     m_current_config = m_1stfastest;
@@ -150,6 +151,85 @@ void Routine::binarySearch() {
                  " based on thread diff: %d, new number of threads: %d.\n",
                  diff_threads, m_current_config.num_threads));
   }
+}
+
+void Routine::predictiveEstimation() {
+
+  kmp_real64 IPC_max = 0.0;
+  kmp_real64 IPC_min = DBL_MAX;
+
+  const auto &stats = m_execution_history.at(m_current_config);
+  for (const auto &stat : stats) {
+    if (stat.IPC == 0.0 || std::isnan(stat.IPC)) {
+      continue;
+    }
+    IPC_max = std::max(IPC_max, stat.IPC);
+    IPC_min = std::min(IPC_min, stat.IPC);
+  }
+
+  KMP_DEBUG_ASSERT(IPC_max > 0.0);
+  KMP_DEBUG_ASSERT(IPC_min < DBL_MAX);
+
+  // Kernel of the prediction modell
+  kmp_real64 IPC_diff = IPC_max / IPC_min;
+  kmp_uint32 num_nodes =
+      (((Topo::numa_topology.get_num_numa() / IPC_diff) * 2) /
+       Topo::numa_topology.get_num_numa()) *
+      Topo::numa_topology.get_num_numa();
+
+  num_nodes = std::clamp(num_nodes, 1U, Topo::numa_topology.get_num_numa() - 1);
+
+  m_current_config.num_threads =
+      num_nodes * Topo::numa_topology.get_numa_size();
+
+  KA_TRACE(
+      1, ("Routine::predictiveEstimation(): Routine %p: IPC max: %f, IPC min: "
+          "%f, IPC diff: %f, num_nodes: %d.\n",
+          m_routine_id, IPC_max, IPC_min, IPC_diff, num_nodes));
+}
+
+// Try the surronding configs of the fastest
+void Routine::predictiveModel() {
+
+  auto ncores = m_1stfastest.num_threads + MOLDABILITY_GRANULARITY;
+  auto elem = std::find_if(
+      m_execution_history.begin(), m_execution_history.end(),
+      [ncores](const auto &kv) { return kv.first.num_threads == ncores; });
+
+  // Try a larger config if it has not been tried before
+  if (elem == m_execution_history.end() &&
+      ncores <= Topo::numa_topology.get_num_cores()) {
+    m_current_config = m_1stfastest;
+    m_current_config.num_threads = ncores;
+    KA_TRACE(1, ("Routine::predictiveModel(): Routine %p trying a larger "
+                 "config! Ncores: %d.\n",
+                 m_routine_id, ncores));
+    return;
+  }
+
+  ncores = m_1stfastest.num_threads - MOLDABILITY_GRANULARITY;
+  elem = std::find_if(
+      m_execution_history.begin(), m_execution_history.end(),
+      [ncores](const auto &kv) { return kv.first.num_threads == ncores; });
+
+  // Try a smaller config if it has not been tried before
+  if (elem == m_execution_history.end() && ncores >= MOLDABILITY_GRANULARITY) {
+    m_current_config = m_1stfastest;
+    m_current_config.num_threads = ncores;
+    KA_TRACE(1, ("Routine::predictiveModel(): Routine %p trying a smaller "
+                 "config! Ncores: %d.\n",
+                 m_routine_id, ncores));
+    return;
+  }
+
+  // Otherwise, search finished
+  m_search_finished = true;
+  m_current_config = m_1stfastest;
+  KA_TRACE(
+      1,
+      ("Routine::predictiveModel(): Routine %p finished search! Select fastest "
+       "Ncores: %d.\n",
+       m_routine_id, m_current_config.num_threads));
 }
 
 ///
@@ -201,14 +281,23 @@ const routine_config &Routine::getNextConfig(kmp_uint64 ub) {
     // Keep running the fastest config
     m_current_config = m_1stfastest;
   } else if (m_iteration_count == 2) {
-    initBinarySearch();
+    if (calcFastestNUMAExec(m_current_config) >=
+        TASKLOOP_PERF_COUNTERS_VALID_TIME) {
+      predictiveEstimation();
+    } else {
+      KA_TRACE(1, ("Routine::getNextConfig(): Routine %p is a tiny taskloop! "
+                   "Select minimal config!\n",
+                   m_routine_id));
+      m_current_config.num_threads = MOLDABILITY_GRANULARITY;
+      m_search_finished = true;
+    }
   }
 
   // If two or more previous configs, try a config inbetween the two fastest
   // configs
   else {
-    KA_TRACE(1, ("Routine::getNextConfig(): binarySearch\n"));
-    binarySearch();
+    predictiveModel();
+    // binarySearch();
   }
 
   // For now, always set numer of task according to default OpenMP heuristic
@@ -219,8 +308,12 @@ const routine_config &Routine::getNextConfig(kmp_uint64 ub) {
 
   // Check if load balancing is required.
 #ifdef LOADBALANCE
-  if (m_search_finished == true && current_search_state == false) {
+  if (m_search_finished == true && current_search_state == false &&
+      (m_current_config.num_threads != MOLDABILITY_GRANULARITY)) {
     m_current_config.steal_policy = checkLoadBalance();
+    KA_TRACE(1, ("Routine::getNextConfig(): Iteration counts for Routine %p to "
+                 "finish search: %d.\n",
+                 m_routine_id, m_iteration_count));
   }
 #endif
 
@@ -306,14 +399,35 @@ void Routine::storeExecution(routine_stats_nodes stats) {
 ///
 kmp_real64 Routine::calcSlowestNUMAExec(const routine_config &config) {
 
-  kmp_real64 slowest = 0;
+  kmp_real64 slowest = 0.0;
   const auto &stats = m_execution_history.at(config);
   for (const auto &stat : stats) {
     slowest = std::max(slowest, stat.execution_time);
   }
 
-  KMP_DEBUG_ASSERT(slowest > 0);
+  KMP_DEBUG_ASSERT(slowest > 0.0);
   return slowest;
+}
+
+///
+/// @brief Calculates the fastest execution time among all NUMA nodes for a
+/// certain config
+///
+kmp_real64 Routine::calcFastestNUMAExec(const routine_config &config) {
+
+  kmp_real64 fastest = DBL_MAX;
+  const auto &stats = m_execution_history.at(config);
+  for (const auto &stat : stats) {
+    if (stat.execution_time == 0.0) {
+      continue;
+    }
+    fastest = std::min(fastest, stat.execution_time);
+  }
+
+  KMP_DEBUG_ASSERT(fastest < DBL_MAX);
+  KMP_DEBUG_ASSERT(fastest > 0.0);
+
+  return fastest;
 }
 
 inline kmp_uint32 pext(kmp_uint64 BB, kmp_uint64 mask) {

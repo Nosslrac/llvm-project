@@ -7,7 +7,8 @@
 #include <vector>
 
 union kmp_info;
-constexpr kmp_real64 LOAD_BALANCE_REQUIRED_FACTOR = 1.0;
+constexpr kmp_real64 LOAD_BALANCE_REQUIRED_FACTOR = 1.5;
+constexpr kmp_real64 TASKLOOP_PERF_COUNTERS_VALID_TIME = 0.001;
 
 enum class StealPolicy : kmp_uint16 {
   NUMA = 0,
@@ -58,8 +59,11 @@ private:
   routine_config getInitialConfig(kmp_uint32 nthreads);
   void initBinarySearch();
   void binarySearch();
+  void predictiveModel();
+  void predictiveEstimation();
 
   kmp_real64 calcSlowestNUMAExec(const routine_config &config);
+  kmp_real64 calcFastestNUMAExec(const routine_config &config);
   kmp_uint16 getNUMAMask() const;
   StealPolicy checkLoadBalance();
 

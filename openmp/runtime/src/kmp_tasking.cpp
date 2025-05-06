@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "kmp.h"
+#include "kmp_debug.h"
 #include "kmp_i18n.h"
 #include "kmp_itt.h"
 #include "kmp_stats.h"
@@ -704,7 +705,8 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
   const int cpu = sched_getcpu();
   KA_TRACE(4, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
                "Routine = %p\n",
-               __FILE_NAME__, __LINE__, gtid, cpu, taskdata, task->routine));
+               __FILE_NAME__, __LINE__, __kmp_tid_from_gtid(gtid), cpu,
+               taskdata, task->routine));
   // ODIN END
 
   KMP_DEBUG_ASSERT(taskdata->td_flags.tasktype == TASK_EXPLICIT);
@@ -3543,6 +3545,13 @@ static inline int __kmp_execute_tasks_template(
                       std::bitset<16>(KMP_TASK_TO_TASKDATA(task)->td_affin_mask)
                           .to_string()
                           .c_str()));
+
+            if (__kmp_tid_from_gtid(gtid) / 8 != victim_tid / 8) {
+              KA_TRACE(
+                  2,
+                  ("__kmp_execute_tasks_template: T#%d stole task from T#%d\n",
+                   __kmp_tid_from_gtid(gtid), victim_tid));
+            }
           }
         }
         if (task != NULL) { // set last stolen to victim
@@ -5414,6 +5423,8 @@ static void __kmp_taskloop(ident_t *loc, int gtid, kmp_task_t *task, int if_val,
       Schedule::__kmp_set_head_all(thread->th.th_task_team);
     }
     grainsize = next_config.num_tasks;
+    // EM: Should we check tc and change num_task if tc < grainsize?
+
     // ODIN END
 
     KMP_FALLTHROUGH();

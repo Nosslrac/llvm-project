@@ -349,8 +349,8 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                 "      - Backend bound CPU = %lf\n"
 #endif
                 ,
-                i / numaSize, IPC, stop_time - taskloop_start_time, tasks,
-                tasks_gen
+                i / numaSize, IPC / (numaSize - node_loss),
+                stop_time - taskloop_start_time, tasks, tasks_gen
 #ifdef AMD_PERF
                 ,
                 results.m_totDisp, results.m_l1All, results.m_l1DiffNuma,

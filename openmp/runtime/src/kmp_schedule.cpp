@@ -168,11 +168,11 @@ void Schedule::__kmp_set_task_affinity(kmp_info *thread,
   KA_TRACE(3, ("%s:%d: __kmp_set_task_affinity: for routine %p: Nthreads=%d, "
                "Nnuma=%d, "
                "numaid=%d,"
-               "bucketSize=%lu "
+               "bucketSize=%lu, lb=%d, ub=%d, "
                "MidIter#%d => Affin_mask=0b%s.\n"
                "Task_place=%d\n",
                __FILE_NAME__, __LINE__, routine_id, nthreads, numNuma, numaId,
-               bucketSize, midRange,
+               bucketSize, lb, ub, midRange,
                std::bitset<16>(taskdata->td_affin_mask).to_string().c_str(),
                taskdata->td_task_place_tid));
 }
