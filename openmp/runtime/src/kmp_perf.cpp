@@ -335,6 +335,7 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                 "      - Exec time: %lf\n"
                 "      - Tasks (not averaged): %d\n"
                 "      - Gen Tasks (not averaged): %d\n"
+                "      - Last task finish time: %lf\n"
 
 #ifdef AMD_PERF
                 "  # AMD raw ratios:\n"
@@ -350,7 +351,8 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
 #endif
                 ,
                 i / numaSize, IPC / (numaSize - node_loss),
-                stop_time - taskloop_start_time, tasks, tasks_gen
+                stop_time - taskloop_start_time, tasks, tasks_gen,
+                thread->th.task_finish_time
 #ifdef AMD_PERF
                 ,
                 results.m_totDisp, results.m_l1All, results.m_l1DiffNuma,
