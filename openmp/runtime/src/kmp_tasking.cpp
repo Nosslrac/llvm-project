@@ -687,26 +687,24 @@ void __kmp_push_current_task_to_thread(kmp_info_t *this_thr, kmp_team_t *team,
 // current_task: task suspending
 static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
                              kmp_taskdata_t *current_task) {
-  KA_TRACE(4, ("%s:%d: __kmp_task_start(entered) T#%d\n", __FILE_NAME__,
-               __LINE__, gtid));
   kmp_taskdata_t *taskdata = KMP_TASK_TO_TASKDATA(task);
   kmp_info_t *thread = __kmp_threads[gtid];
 
   // ODIN
   thread->th.routine_id = (kmp_int64)task->routine;
 
-#ifdef PERF_COUNTERS
   if (taskdata->td_affin_mask !=
       static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
+#ifdef PERF_COUNTERS
     Perf::__kmp_start_counters(thread);
-  }
 #endif
+    thread->th.has_execed_on_self = 1;
+  }
 
-  const int cpu = sched_getcpu();
-  KA_TRACE(4, ("%s:%d: __kmp_task_start: T#%d = CPU#%d starting task %p, "
+  KA_TRACE(4, ("%s:%d: __kmp_task_start: Tid#%d = CPU#%d starting task %p, "
                "Routine = %p\n",
-               __FILE_NAME__, __LINE__, __kmp_tid_from_gtid(gtid), cpu,
-               taskdata, task->routine));
+               __FILE_NAME__, __LINE__, __kmp_tid_from_gtid(gtid),
+               sched_getcpu(), taskdata, task->routine));
   // ODIN END
 
   KMP_DEBUG_ASSERT(taskdata->td_flags.tasktype == TASK_EXPLICIT);
@@ -3533,10 +3531,20 @@ static inline int __kmp_execute_tasks_template(
         }
 
         if (!asleep) {
-          // We have a victim to try to steal from
-          task =
-              __kmp_steal_task(victim_tid, gtid, task_team, unfinished_threads,
-                               thread_finished, is_constrained);
+          // Block steals before has execed on self
+          if (__kmp_tid_from_gtid(gtid) / 8 != victim_tid / 8 &&
+              thread->th.has_execed_on_self == 0) {
+            KA_TRACE(
+                2, ("__kmp_execute_tasks_template: T#%d stole task from T#%d\n",
+                    __kmp_tid_from_gtid(gtid), victim_tid));
+            task = NULL;
+          } else {
+
+            // We have a victim to try to steal from
+            task = __kmp_steal_task(victim_tid, gtid, task_team,
+                                    unfinished_threads, thread_finished,
+                                    is_constrained);
+          }
           if (task != NULL) {
             KA_TRACE(2,
                      ("%s:%d: __kmp_execute_tasks_template: T#%d stealing task "
@@ -3545,13 +3553,6 @@ static inline int __kmp_execute_tasks_template(
                       std::bitset<16>(KMP_TASK_TO_TASKDATA(task)->td_affin_mask)
                           .to_string()
                           .c_str()));
-
-            if (__kmp_tid_from_gtid(gtid) / 8 != victim_tid / 8) {
-              KA_TRACE(
-                  2,
-                  ("__kmp_execute_tasks_template: T#%d stole task from T#%d\n",
-                   __kmp_tid_from_gtid(gtid), victim_tid));
-            }
           }
         }
         if (task != NULL) { // set last stolen to victim

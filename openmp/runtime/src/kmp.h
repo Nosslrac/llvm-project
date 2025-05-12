@@ -3083,6 +3083,8 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
   // Schedule parameters
   kmp_uint16 steal_mask;
   kmp_uint32 numa_head_start; // First task index for current taskloop
+  kmp_int8
+      has_execed_on_self; // Flag ensuring threads start within their NUMA node
 
 #if KMP_AFFINITY_SUPPORTED
   kmp_int8 force_affin;
