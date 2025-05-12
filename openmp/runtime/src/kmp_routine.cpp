@@ -316,10 +316,6 @@ kmp_real64 Routine::calcSlowestNUMAExec(const routine_config &config) {
   return slowest;
 }
 
-inline kmp_uint32 pext(kmp_uint64 BB, kmp_uint64 mask) {
-  return static_cast<kmp_uint32>(__builtin_ia32_pext_di(BB, mask));
-}
-
 ///
 /// @brief This function will return the NUMA node mask for the current config.
 /// @note This function assumes that m_current_config does not

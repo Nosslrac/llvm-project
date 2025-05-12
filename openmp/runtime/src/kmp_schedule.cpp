@@ -199,6 +199,7 @@ void Schedule::__kmp_set_start_head(kmp_task_team_t *task_team,
   kmp_thread_data_t *threads_data =
       &task_team->tt.tt_threads_data[numa_base_tid];
   KMP_DEBUG_ASSERT(threads_data != NULL);
+  thread->th.has_execed_on_self = 0;
   thread->th.numa_head_start = threads_data->td.td_deque_head;
   KA_TRACE(3, ("__kmp_set_start_head: Thread tid=%d set head to %d\n", tid,
                thread->th.numa_head_start));

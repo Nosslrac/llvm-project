@@ -27,11 +27,7 @@ NumaTopology Topo::__kmp_read_topology() {
       hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
   const auto ncores = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_CORE);
   const auto nsockets = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PACKAGE);
-  const auto base_steal_bits = (1ULL << nNumaNodes) - 1;
-
-  KA_TRACE(1, ("__kmp_read_topology: Number of NUMA nodes detected to %u, "
-               "total cores = %u, sockets = %u, base_steal_bits = %lu\n",
-               nNumaNodes, ncores, nsockets, base_steal_bits));
+  hwloc_topology_destroy(topology);
 
   KMP_ASSERT(nNumaNodes > 0);
   KMP_ASSERT(ncores > 0);
