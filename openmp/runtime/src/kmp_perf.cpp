@@ -7,12 +7,10 @@
 
 #include <asm/unistd_64.h>
 #include <cstdint>
-#include <limits>
 #include <sched.h>
 #include <linux/perf_event.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-#include <vector>
 
 namespace {
 inline constexpr int perf_id(PerfEvents event) {
@@ -277,6 +275,8 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
                                     const kmp_real64 taskloop_start_time) {
   kmp_real64 stop_time = taskloop_start_time;
   kmp_real64 IPC = 0.0;
+  kmp_real64 start_time = taskloop_start_time;
+  kmp_uint32 last_start_tid = 0;
   for (kmp_uint32 i = 0; i < nthreads; i++) {
     kmp_info_t *thread = team->t.t_threads[i];
 #ifdef PERF_COUNTERS
@@ -293,6 +293,10 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
     if (stop_time < thread->th.task_finish_time) {
       stop_time = thread->th.task_finish_time;
     }
+    if (start_time < thread->th.task_start_time) {
+      start_time = thread->th.task_start_time;
+      last_start_tid = i;
+    }
 
     if ((i + 1) % numaSize == 0 || (i + 1) == nthreads) {
       numaSummary[i / numaSize].execution_time =
@@ -301,10 +305,16 @@ void __kmp_summarize_taskloop_stats(kmp_team *team,
       KA_TRACE(1,
                ("__kmp_summarize_taskloop_stats: NUMA node %d\n"
                 "    - IPC: %lf\n"
-                "    - Exec time: %lf\n",
-                i / numaSize, IPC / numaSize, stop_time - taskloop_start_time));
+                "    - Exec time: %lf\n"
+                "    - Last start: %lf, portion of exec = %lf (tid=%u)\n",
+                i / numaSize, IPC / numaSize, stop_time - taskloop_start_time,
+                start_time - taskloop_start_time,
+                (start_time - taskloop_start_time) /
+                    (stop_time - taskloop_start_time),
+                last_start_tid));
       IPC = 0.0;
       stop_time = taskloop_start_time;
+      start_time = taskloop_start_time;
     }
   }
 }

@@ -695,6 +695,9 @@ static void __kmp_task_start(kmp_int32 gtid, kmp_task_t *task,
   if (taskdata->td_affin_mask !=
       static_cast<kmp_uint16>(StealPolicy::TASK_GENERATION)) {
 #ifdef PERF_COUNTERS
+    if (Schedule::__kmp_get_routine_timer() > thread->th.task_start_time) {
+      __kmp_read_system_time(&thread->th.task_start_time);
+    }
     Perf::__kmp_start_counters(thread);
 #endif
     thread->th.has_execed_on_self = 1;

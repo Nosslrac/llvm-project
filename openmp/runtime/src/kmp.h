@@ -3075,6 +3075,7 @@ typedef struct KMP_ALIGN_CACHE kmp_base_info {
 #endif
 #endif
   kmp_real64 task_finish_time;
+  kmp_real64 task_start_time;
   // Routine id
   kmp_int64 routine_id;
 
