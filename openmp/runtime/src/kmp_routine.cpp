@@ -172,7 +172,7 @@ const routine_config &Routine::getNextConfig(kmp_uint64 ub) {
 
 #ifndef MOLDABILITY
 #ifdef LOADBALANCE
-  m_current_config.steal_policy = checkLoadBalance();
+  m_current_config.steal_policy = StealPolicy::FULL;
 #endif
   return m_current_config;
 #endif
@@ -219,7 +219,7 @@ const routine_config &Routine::getNextConfig(kmp_uint64 ub) {
 
   // Check if load balancing is required.
 #ifdef LOADBALANCE
-  if (m_search_finished == true && current_search_state == false) {
+  if (m_search_finished && !current_search_state) {
     m_current_config.steal_policy = checkLoadBalance();
   }
 #endif
@@ -381,8 +381,9 @@ StealPolicy Routine::checkLoadBalance() {
 
   kmp_real64 diff = slowest / fastest;
 
-  if (diff >= LOAD_BALANCE_REQUIRED_FACTOR)
+  if (diff >= LOAD_BALANCE_REQUIRED_FACTOR) {
     policy = StealPolicy::FULL;
+  }
 
   KA_TRACE(1, ("Routine::checkLoadbalance(): Policy %d selected for routine "
                "%p. Fastest:%f, "

@@ -18,12 +18,12 @@ else()
   set(OPENMP_STANDALONE_BUILD FALSE)
 endif()
 
-# ODIN
+# ILAN
 add_definitions(-DPERF_COUNTERS)
-#add_definitions(-DAMD_PERF)
+# add_definitions(-DAMD_PERF)
 add_definitions(-DMOLDABILITY)
 add_definitions(-DLOADBALANCE)
-# ODIN END
+# ILAN END
 
 # Must go below project(..)
 include(GNUInstallDirs)
@@ -31,7 +31,7 @@ include(GNUInstallDirs)
 if (OPENMP_STANDALONE_BUILD)
   # CMAKE_BUILD_TYPE was not set, default to Release.
   if (NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug)
+    set(CMAKE_BUILD_TYPE Release)
   endif()
 
   # Group common settings.

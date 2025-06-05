@@ -97,13 +97,13 @@ else()
     kmp_lock.cpp
     kmp_sched.cpp
     kmp_collapse.cpp
-# ODIN
+# ILAN
     kmp_perf.cpp
     kmp_schedule.cpp
     kmp_perf_objects.cpp
     kmp_routine.cpp
     kmp_topo.cpp
-# ODIN END
+# ILAN END
   )
   if(WIN32)
     # Windows specific files

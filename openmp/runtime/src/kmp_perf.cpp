@@ -7,12 +7,10 @@
 
 #include <asm/unistd_64.h>
 #include <cstdint>
-#include <limits>
 #include <sched.h>
 #include <linux/perf_event.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-#include <vector>
 
 namespace {
 inline constexpr int perf_id(PerfEvents event) {

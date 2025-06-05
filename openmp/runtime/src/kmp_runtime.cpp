@@ -30,11 +30,11 @@
 #include "kmp_dispatch_hier.h"
 #endif
 
-// ODIN
+// ILAN
 #ifdef PERF_COUNTERS
 #include "kmp_perf.h"
 #endif
-// ODIN END
+// ILAN END
 
 #if OMPT_SUPPORT
 #include "ompt-specific.h"
@@ -6023,12 +6023,12 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   KMP_MB();
   KA_TRACE(3, ("__kmp_launch_thread: T#%d start\n", gtid));
 
-// ODIN
+// ILAN
 #ifdef PERF_COUNTERS
   // Open file descriptors for all perf events for this thread
   Perf::__kmp_init_counters(this_thr, gtid);
 #endif
-  // ODIN END
+  // ILAN END
 
   if (__kmp_env_consistency_check) {
     this_thr->th.th_cons = __kmp_allocate_cons_stack(gtid); // ATT: Memory leak?
@@ -6126,12 +6126,12 @@ void *__kmp_launch_thread(kmp_info_t *this_thr) {
   }
 #endif
 
-// ODIN
+// ILAN
 #ifdef PERF_COUNTERS
   // Close all file descriptors for perf events for this thread
   Perf::__kmp_disable_counters(this_thr);
 #endif
-  // ODIN END
+  // ILAN END
 
   this_thr->th.th_task_team = NULL;
   /* run the destructors for the threadprivate data for this thread */
@@ -6173,7 +6173,7 @@ __attribute__((destructor)) void __kmp_internal_end_dtor(void) {
 void __kmp_internal_end_atexit(void) {
   KA_TRACE(30, ("__kmp_internal_end_atexit\n"));
 
-// ODIN
+// ILAN
 #ifdef PERF_COUNTERS
   int gtid = __kmp_get_gtid();
 
@@ -6183,7 +6183,7 @@ void __kmp_internal_end_atexit(void) {
     Perf::__kmp_disable_counters(__kmp_thread_from_gtid(gtid));
   }
 #endif
-  // ODIN END
+  // ILAN END
 
   /* [Windows]
      josh: ideally, we want to completely shutdown the library in this atexit
@@ -7463,7 +7463,7 @@ static void __kmp_do_middle_initialize(void) {
   __kmp_affinity_initialize(__kmp_affinity);
 
 #endif /* KMP_AFFINITY_SUPPORTED */
-// ODIN
+// ILAN
 #ifdef PERF_COUNTERS
   int gtid = __kmp_entry_gtid(); // this might be a new root
 
@@ -7474,7 +7474,7 @@ static void __kmp_do_middle_initialize(void) {
   Perf::__kmp_init_counters(__kmp_thread_from_gtid(gtid), gtid);
   Topo::numa_topology.showTopo();
 #endif
-  // ODIN END
+  // ILAN END
 
   KMP_ASSERT(__kmp_xproc > 0);
   if (__kmp_avail_proc == 0) {

@@ -15,6 +15,8 @@ namespace {
 
 constexpr kmp_uint32 NUM_LOAD_STRICT_TASK = 3;
 
+#ifdef MOLDABILITY
+
 inline kmp_uint8 bitCount(kmp_uint64 mask) {
 #if __has_builtin(__builtin_popcountll)
   return static_cast<kmp_uint8>(__builtin_popcountll(mask));
@@ -39,6 +41,8 @@ inline kmp_uint8 findBit(kmp_uint16 nodeMask, const kmp_uint8 count) {
   return bitScan(nodeMask);
 }
 
+#endif
+
 inline kmp_uint64 min(const kmp_uint64 a, const kmp_uint64 b) {
   if (a < b) {
     return a;
@@ -53,13 +57,12 @@ inline kmp_uint64 max(const kmp_uint64 a, const kmp_uint64 b) {
   return b;
 }
 
-// Routine stuff
+// Shared globals: used by summarizing thread
 std::unordered_map<kmp_int64, Routine>
     routine_map; // Map containing all routines
 
 kmp_real64 routine_timer;
 
-// Routine stuff end
 } // namespace
 
 ///
@@ -376,6 +379,9 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread, kmp_uint64 ub) {
   return ret_config;
 }
 
+///
+/// @brief Returns the info about the policy selected for the current routine.
+///
 Schedule::PolicyInfo Schedule::__kmp_get_policy_info(kmp_info *thread,
                                                      kmp_int64 routine_id) {
   if (thread->th.th_team_nproc == 1) {
