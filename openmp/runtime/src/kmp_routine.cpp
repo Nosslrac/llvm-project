@@ -37,9 +37,8 @@ inline bool operator==(const routine_config &lhs, const routine_config &rhs) {
 /// about a taskloop with ID routine_id (memory address of taskloop i.e.
 /// routine_entry).
 ///
-Routine::Routine(kmp_int64 routine_id, kmp_uint32 nthreads, kmp_uint64 ub)
-    : m_routine_id(routine_id), m_upper_bound(ub),
-      m_current_config(getInitialConfig(nthreads)),
+Routine::Routine(kmp_int64 routine_id, kmp_uint32 nthreads)
+    : m_routine_id(routine_id), m_current_config(getInitialConfig(nthreads)),
       m_1stfastest(UNDEFINED_CONFIG), m_2ndfastest(UNDEFINED_CONFIG),
       m_search_finished(false), m_iteration_count(0),
       MOLDABILITY_GRANULARITY(Topo::numa_topology.get_numa_size()) {}
@@ -166,7 +165,7 @@ void Routine::binarySearch() {
 ///    config will be used for the rest of the execution.
 /// 4. Check if load balancing is required for the fastest config, to
 ///    determine if the stealing policy needs to be changed.
-const routine_config &Routine::getNextConfig(kmp_uint64 ub) {
+const routine_config &Routine::getNextConfig() {
   m_iteration_count++;
   bool current_search_state = m_search_finished;
 
@@ -178,23 +177,6 @@ const routine_config &Routine::getNextConfig(kmp_uint64 ub) {
 #endif
   if (m_current_config.num_threads == 1) {
     m_search_finished = true;
-  } else if (ub != m_upper_bound) {
-    // Taskloop size is not constant, abort moldability
-
-    m_current_config.num_threads = Topo::numa_topology.get_num_cores();
-    m_current_config.num_tasks = m_current_config.num_threads * 10;
-    m_current_config.node_mask =
-        static_cast<kmp_uint16>((1U << Topo::numa_topology.get_num_numa()) - 1);
-    m_current_config.steal_policy = StealPolicy::NUMA;
-
-    if (m_upper_bound != 0) {
-      KA_TRACE(1, ("Routine:getNextConfig(): Taskloop size is not constant, "
-                   "moldability aborted!\n"));
-    }
-
-    m_upper_bound = 0;
-    m_search_finished = true;
-    return m_current_config;
   } else if (m_iteration_count == 1) {
     // Do nothing, just keep executing the current config
   } else if (m_search_finished) {

@@ -346,7 +346,7 @@ void Schedule::__kmp_store_routine_stats(kmp_team *team, kmp_int64 routine_id) {
 /// @brief Get the next config for the taskloop routine that is
 /// about to be executed.
 ///
-routine_config Schedule::__kmp_select_config(kmp_info *thread, kmp_uint64 ub) {
+routine_config Schedule::__kmp_select_config(kmp_info *thread) {
 
   if (thread->th.th_team_nproc == 1) {
     KA_TRACE(1, ("__kmp_store_routine_stats: Select default "
@@ -363,11 +363,11 @@ routine_config Schedule::__kmp_select_config(kmp_info *thread, kmp_uint64 ub) {
   // If not, add new routine to map and return default config
   if (routine_map.find(routine_id) == routine_map.end()) {
     routine_map.emplace(routine_id,
-                        Routine(routine_id, thread->th.th_team_nproc, ub));
+                        Routine(routine_id, thread->th.th_team_nproc));
     ret_config = routine_map.at(routine_id).getCurrentConfig();
 
   } else {
-    ret_config = routine_map.at(routine_id).getNextConfig(ub);
+    ret_config = routine_map.at(routine_id).getNextConfig();
   }
 
   KA_TRACE(1,
